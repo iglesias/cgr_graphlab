@@ -11,3 +11,10 @@
 *.lai
 *.la
 *.a
+
+# Binaries
+bin/*
+build/*
+msg_gen/*
+srv_gen/*
+src/cgr_graphlab/*

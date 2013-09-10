@@ -23,6 +23,7 @@
 #define VECTORPARTICLEFILTER_H
 
 #include "stdio.h"
+#include <graphlab.hpp>
 #include <vector>
 #include <map>
 #include "vector_map.h"
@@ -32,6 +33,11 @@
 #include "terminal_utils.h"
 
 static const bool EnableProfiling = false;
+
+//Forward declaration 
+class Particle2D;
+
+typedef graphlab::distributed_graph<Particle2D, graphlab::empty> graph_type;
 
 using namespace std;
 using namespace Eigen;
@@ -49,6 +55,24 @@ public:
   Particle2D(vector2f _loc, float _theta, float _w) { loc = _loc; angle = _theta; weight = _w;}
   bool operator<(const Particle2D &other) {return weight<other.weight;}
   bool operator>(const Particle2D &other) {return weight>other.weight;}
+
+  Particle2D &operator=(const Particle2D &other) {
+    angle = other.angle;
+    weight = other.weight;
+    loc.x = other.loc.x;
+    loc.y = other.loc.y;
+    lastLoc.x = other.lastLoc.x;
+    lastLoc.y = other.lastLoc.y;
+    return *this;
+  } 
+
+  void save(graphlab::oarchive &oarc) const {
+    oarc << angle << weight << loc.x << loc.y << lastLoc.x << lastLoc.y;
+  }
+
+  void load(graphlab::iarchive &iarc) {
+    iarc >> angle >> weight >> loc.x >> loc.y >> lastLoc.x >> lastLoc.y;
+  }
 };
 
 /**
@@ -155,6 +179,9 @@ public:
   };
   
 protected:
+  //Distributed graph
+  graph_type* graph;
+
   //Current state
   VectorMap* currentMap;
   vector2f currentLocation;

@@ -49,10 +49,31 @@ include_directories(${PROJECT_SOURCE_DIR}/src/map)
 include_directories(${PROJECT_SOURCE_DIR}/src/cgr)
 include_directories(${PROJECT_SOURCE_DIR}/src/fspf)
 
+#FIXME make machine independent
+include_directories("/home/iglesias/workspace/boost_1_53_0")
+
 include_directories(${LUA_INCLUDE_DIR})
 include_directories(${USB_INCLUDE_DIR})
 
-set(libs popt pthread ${LUA_LIBRARIES} rt)  
+# find libraries
+find_library(GRAPHLAB_LIBRARY NAMES graphlab libgraphlab)
+find_library(MPI_LIBRARY NAMES mpi libmpi)
+find_library(MPIXX_LIBRARY NAMES mpi++ libmpi++)
+find_library(TCMALLOC_LIBRARY NAMES tcmalloc libtcmalloc)
+find_library(ZOOKEEPER_MT_LIBRARY NAMES zookeeper_mt libzookeeper_mt)
+find_library(ZOOKEEPER_ST_LIBRRARY NAMES zookeeper_st libzookeeper_st)
+find_library(EVENT_LIBRARY NAMES event libevent)
+find_library(EVENT_PTHREADS_LIBRARY NAMES event_pthreads libevent_pthreads)
+#FIXME make machine independent
+find_library(BOOST_CONTEXT_LIBRARY NAMES boost_context libboost_context
+  HINTS "/home/iglesias/workspace/boost_1_53_0/stage/lib")
+
+set(libs popt pthread ${LUA_LIBRARIES} rt
+  ${MPI_LIBRARY} ${MPIXX_LIBRARY} ${TCMALLOC_LIBRARY}
+  ${EVENT_LIBRARY} ${EVENT_PTHREADS_LIBRARY}
+  ${ZOOKEEPER_MT_LIBRARY} ${ZOOKEEPER_ST_LIBRRARY}
+  ${BOOST_CONTEXT_LIBRARY}
+  ${GRAPHLAB_LIBRARY})
 
 set(SHARED_SRCS
   src/shared/math/gvector.h

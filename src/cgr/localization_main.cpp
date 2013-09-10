@@ -43,9 +43,9 @@
 #include "terminal_utils.h"
 #include "timer.h"
 #include "proghelp.h"
-#include "cgr_localization/DisplayMsg.h"
-#include "cgr_localization/LocalizationInterfaceSrv.h"
-#include "cgr_localization/LocalizationMsg.h"
+#include "cgr_graphlab/DisplayMsg.h"
+#include "cgr_graphlab/LocalizationInterfaceSrv.h"
+#include "cgr_graphlab/LocalizationMsg.h"
 #include "configreader.h"
 #include "plane_filtering.h"
 
@@ -64,7 +64,7 @@ float locUncertainty, angleUncertainty;
 VectorLocalization2D *localization;
 
 using namespace ros;
-using namespace cgr_localization;
+using namespace cgr_graphlab;
 Publisher guiPublisher;
 Publisher localizationPublisher;
 Publisher filteredPointCloudPublisher;
@@ -178,7 +178,7 @@ void publishLocation(bool limitRate)
   //Publish particles
   vector<Particle2D> particles;
   localization->getParticles(particles);
-  particlesMsg.poses.resize(particles.size());gc
+  particlesMsg.poses.resize(particles.size());
   geometry_msgs::Pose particle;
   for(unsigned int i=0; i<particles.size(); i++){
     particle.position.x = particles[i].loc.x;
@@ -196,19 +196,19 @@ void publishLocation(bool limitRate)
   try{
     tf::StampedTransform odomToBaseTf;
     transformListener->lookupTransform("odom","base_link",ros::Time(0), odomToBaseTf);
-   gc
+
     vector2f map_base_trans = curLoc;
     float map_base_rot = curAngle;
-   gc
+
     vector2f odom_base_trans(odomToBaseTf.getOrigin().x(), odomToBaseTf.getOrigin().y());
     float odom_base_rot = 2.0*atan2(odomToBaseTf.getRotation().z(), odomToBaseTf.getRotation().w());
-   gc
+
     vector2f base_odom_trans = -odom_base_trans.rotate(-odom_base_rot);
     float base_odom_rot = -odom_base_rot;
-   gc
+
     vector2f map_odom_trans = map_base_trans + base_odom_trans.rotate(map_base_rot);
     float map_odom_rot = angle_mod(map_base_rot + base_odom_rot);
-   gc
+
     tf::Transform mapToOdomTf;
     mapToOdomTf.setOrigin(tf::Vector3(V2COMP(map_odom_trans), 0.0));
     mapToOdomTf.setRotation(tf::Quaternion(tf::Vector3(0,0,1),map_odom_rot));

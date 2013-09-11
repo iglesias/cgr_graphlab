@@ -23,6 +23,8 @@
 
 static const bool UseAnalyticRender = true;
 
+//Pointer to the motion currently processed
+const VectorLocalization2D::Motion* MOTION = NULL;
 
 inline float eigenCross(const Vector2f &v1, const Vector2f &v2)
 {
@@ -193,9 +195,11 @@ void VectorLocalization2D::predict(float dx, float dy, float dtheta, const Motio
 {
   lastDistanceMoved += vector2f(dx,dy).rotate(lastAngleTurned);
   lastAngleTurned += dtheta;
-  for(int i=0; i<numParticles; i++){
-    predictParticle(particles[i], dx, dy, dtheta, motionParams);
-  }
+
+  Motion motion(dx, dy, dtheta, motionParams);
+  MOTION = &motion;
+
+  graph->transform_vertices(predictParticle);
 }
 
 float VectorLocalization2D::motionModelWeight(vector2f loc, float angle, const MotionModelParams &motionParams)
@@ -527,26 +531,39 @@ void VectorLocalization2D::updatePointCloud(vector< vector2f >& pointCloud, vect
   updateTime = GetTimeSec() - tStart;
 }
 
-void VectorLocalization2D::predictParticle(Particle2D& p, float dx, float dy, float dtheta, const MotionModelParams &motionParams)
+void predictParticle(graph_type::vertex_type& v)
 {
   static const bool debug = false;
   
-  if(debug) printf("predict before: %7.2f,%7.2f %6.2f\u00b0 ",p.loc.x,p.loc.y,DEG(p.angle));
+  if(debug)
+  {
+    printf("predict before: %7.2f,%7.2f %6.2f\u00b0 ", v.data().loc.x, v.data().loc.y,
+        DEG(v.data().angle));
+  }
+
   //Motion model
-  vector2f delta(dx,dy);
+  vector2f delta(MOTION->dx, MOTION->dy);
   float d_trans = delta.length();
   
   //Predict rotation
-  dtheta += randn(motionParams.Alpha1*dtheta,0.0f)+randn(motionParams.Alpha2*d_trans,0.0f);
-  p.angle = angle_mod(p.angle+dtheta);
+  float dtheta = MOTION->dtheta;
+  dtheta += randn(MOTION->motionParams->Alpha1*dtheta, 0.0f) + 
+            randn(MOTION->motionParams->Alpha2*d_trans, 0.0f);
+  v.data().angle = angle_mod(v.data().angle + dtheta);
+
   //Predict translation
   if(d_trans>FLT_MIN){
-    delta = delta.rotate(p.angle);
-    delta = delta.norm(d_trans + randn(motionParams.Alpha3*d_trans,0.0f));
+    delta = delta.rotate(v.data().angle);
+    delta = delta.norm(d_trans + randn(MOTION->motionParams->Alpha3*d_trans, 0.0f));
   }
-  if(debug) printf("delta: %f,%f %f\u00b0 ",V2COMP(delta),DEG(dtheta));
-  p.loc += delta;
-  if(debug) printf("after: %7.2f,%7.2f %6.2f\u00b0\n",p.loc.x,p.loc.y,DEG(p.angle));
+
+  if(debug)
+    printf("delta: %f,%f %f\u00b0 ", V2COMP(delta), DEG(dtheta));
+
+  v.data().loc += delta;
+
+  if(debug)
+    printf("after: %7.2f,%7.2f %6.2f\u00b0\n", v.data().loc.x, v.data().loc.y, DEG(v.data().angle));
 }
 
 inline Vector2f VectorLocalization2D::attractorFunction(line2f l, Vector2f p, float attractorRange, float margin)
@@ -1346,4 +1363,20 @@ void VectorLocalization2D::getUncertainty(float& _angleUnc, float& _locUnc)
 {
   _angleUnc = currentAngleStdDev;
   _locUnc = currentLocStdDev.length();
+}
+
+VectorLocalization2D::Motion::Motion()
+{
+  dx = 0.0;
+  dy = 0.0;
+  dtheta = 0.0;
+  motionParams = NULL;
+}
+
+VectorLocalization2D::Motion::Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams)
+{
+  dx = dx;
+  dy = dy;
+  dtheta = dtheta;
+  motionParams = &_motionParams;
 }

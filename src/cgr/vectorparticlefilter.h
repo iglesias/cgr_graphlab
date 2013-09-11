@@ -80,11 +80,11 @@ Particle filter for vector localization
 **/
 
 class VectorLocalization2D{
-  
+
 public:
   typedef struct {
     double tStamp;
-    
+
     //Parameters
     /// Alpha1 = Error in angle per delta in angle
     float Alpha1;
@@ -92,10 +92,20 @@ public:
     float Alpha2;
     /// Alpha3 = Error in translation per delta in translation
     float Alpha3;
-    
+
     float kernelSize;
   } MotionModelParams;
-  
+
+  struct Motion {
+      Motion();
+      Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams);
+
+      double dx;
+      double dy;
+      double dtheta;
+      const MotionModelParams* motionParams;
+  };
+
   class LidarParams{
     public:
     float* laserScan;
@@ -241,8 +251,6 @@ public:
   /// Resample distribution
   void resample(Resample type = LowVarianceResampling);
   
-  /// Predict particle motion by sampling from the motion model
-  void predictParticle(Particle2D& p, float dx, float dy, float dtheta, const VectorLocalization2D::MotionModelParams& motionParams);
   /// Refine a single location hypothesis based on a LIDAR observation
   void refineLocationLidar(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
   /// Refine a single location hypothesis based on a Point Cloud observation
@@ -297,6 +305,10 @@ public:
   /// Returns current particles
   void getParticles(vector<Particle2D> &_particles){_particles = particles;}
 };
+
+/// Predict particle motion by sampling from the motion model
+void predictParticle(graph_type::vertex_type& v);
+
 
 #endif //VECTORPARTICLEFILTER_H
 

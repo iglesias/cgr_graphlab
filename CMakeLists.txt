@@ -17,7 +17,7 @@ message(STATUS "Using compiler: ${CMAKE_CXX_COMPILER}" )
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Arch: ${CMAKE_SYSTEM_PROCESSOR}")
 
-set(CMAKE_CXX_FLAGS "-mmmx -msse -msse2 -msse4.1 -save-temps")
+set(CMAKE_CXX_FLAGS "-mmmx -msse -msse2 -msse4.1 -save-temps -D HAS_MPI")
 
 rosbuild_init()
 #uncomment if you have defined messages
@@ -51,6 +51,7 @@ include_directories(${PROJECT_SOURCE_DIR}/src/fspf)
 
 #FIXME make machine independent
 include_directories("/home/iglesias/workspace/boost_1_53_0")
+include_directories("/usr/include/mpi")
 
 include_directories(${LUA_INCLUDE_DIR})
 include_directories(${USB_INCLUDE_DIR})

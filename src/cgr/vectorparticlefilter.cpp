@@ -1370,9 +1370,9 @@ VectorLocalization2D::Motion::Motion()
 
 VectorLocalization2D::Motion::Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams)
 {
-  dx = dx;
-  dy = dy;
-  dtheta = dtheta;
+  dx = _dx;
+  dy = _dy;
+  dtheta = _dtheta;
   motionParams = &_motionParams;
 }
 

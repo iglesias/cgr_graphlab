@@ -309,6 +309,18 @@ public:
 /// Predict particle motion by sampling from the motion model
 void predictParticle(graph_type::vertex_type& v);
 
+/// MapReduce to compute the pose applying using maximum likelihood over the particle set
+struct PoseReducer : public graphlab::IS_POD_TYPE {
+  double x;
+  double y;
+  double heading_x;
+  double heading_y;
+
+  static PoseReducer getPose(const graph_type::vertex_type& v);
+
+  PoseReducer& operator+=(const PoseReducer& other);
+}; // struct PoseReducer
+
 
 #endif //VECTORPARTICLEFILTER_H
 

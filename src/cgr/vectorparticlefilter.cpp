@@ -1014,18 +1014,13 @@ void VectorLocalization2D::refinePointCloud(const vector<vector2f> &pointCloud, 
 
 void VectorLocalization2D::computeLocation(vector2f& loc, float& angle)
 {
-  vector2f heading;
-  vector2f avgHeading;
-  currentLocation.zero();
-  avgHeading.zero();
-  for(int i=0; i<numParticles; i++){
-    currentLocation = currentLocation + particles[i].loc;
-    heading.heading(particles[i].angle);
-    avgHeading = avgHeading + heading;
-  }
-  currentAngle = avgHeading.angle();
-  currentLocation = currentLocation/float(numParticles);
-  
+  //sum all the poses (taking care od adding up headings appropriately)
+  PoseReducer r = graph->map_reduce_vertices<PoseReducer>(PoseReducer::getPose);
+  //maximum likelihood estimation of the pose
+  currentLocation.x = r.x/numParticles;
+  currentLocation.y = r.y/numParticles;
+  currentAngle = std::atan2(r.heading_y, r.heading_x);
+
   currentLocStdDev.zero();
   currentAngleStdDev = 0.0;
   float xStdDev=0.0, yStdDev=0.0;
@@ -1379,4 +1374,26 @@ VectorLocalization2D::Motion::Motion(float _dx, float _dy, float _dtheta, const 
   dy = dy;
   dtheta = dtheta;
   motionParams = &_motionParams;
+}
+
+PoseReducer PoseReducer::getPose(const graph_type::vertex_type& v) {
+  PoseReducer r;
+
+  r.x = v.data().loc.x;
+  r.y = v.data().loc.y;
+
+  r.heading_x = std::cos(v.data().angle);
+  r.heading_y = std::sin(v.data().angle);
+
+  return r;
+}
+
+PoseReducer& PoseReducer::operator+=(const PoseReducer& other) {
+  x += other.x;
+  y += other.y;
+
+  heading_x += other.heading_x;
+  heading_y += other.heading_y;
+
+  return *this;
 }

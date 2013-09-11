@@ -220,15 +220,14 @@ protected:
   EvalValues laserEval;
     
 public:
-  VectorLocalization2D(const char* _mapsFolder);
-  VectorLocalization2D(int _numParticles);
+  VectorLocalization2D(int _numParticles, const char* _mapsFolder);
   
   /// Sets Particle Filter LIDAR parameters
   void setParams(MotionModelParams _predictParams, LidarParams _lidarUpdateParams);
   /// Loads All the floor maps listed in atlas.txt
   void loadAtlas();
   /// Initialise arrays, and sets initial location to
-  void initialize(int _numParticles, const char* mapName, vector2f loc, float angle, float locationUncertainty = 0.0, float angleUncertainty = 0.0);
+  void initialize(const char* mapName, vector2f loc, float angle, float locationUncertainty = 0.0, float angleUncertainty = 0.0);
   /// Predict step of the particle filter. Samples from the motion model
   void predict(float dx, float dy, float dtheta, const VectorLocalization2D::MotionModelParams& motionParams);
   /// Refine proposal distribution based on LIDAR observations

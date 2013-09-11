@@ -40,23 +40,16 @@ void VectorLocalization2D::LidarParams::initialize()
   }
 }
 
-VectorLocalization2D::VectorLocalization2D(const char* _mapsFolder)
+VectorLocalization2D::VectorLocalization2D(int _numParticles, const char* _mapsFolder)
 {
   mapsFolder = string(_mapsFolder);
-  loadAtlas();
-  numParticles = 0;
-  particles.clear();
-  locCorrectionP0.zero();
-  locCorrectionP1.zero();
-}
-
-VectorLocalization2D::VectorLocalization2D(int _numParticles)
-{
   loadAtlas();
   numParticles = _numParticles;
   particles.resize(_numParticles);
   stage0Weights.resize(_numParticles);
   stageRWeights.resize(_numParticles);
+  locCorrectionP0.zero();
+  locCorrectionP1.zero();
 }
 
 void VectorLocalization2D::loadAtlas()
@@ -137,7 +130,7 @@ void VectorLocalization2D::setMap(const char* map)
   }
 }
 
-void VectorLocalization2D::initialize(int _numParticles, const char* mapName, vector2f loc, float angle, float locationUncertainty, float angleUncertainty)
+void VectorLocalization2D::initialize(const char* mapName, vector2f loc, float angle, float locationUncertainty, float angleUncertainty)
 {
   static const bool debug = false;
   
@@ -155,10 +148,6 @@ void VectorLocalization2D::initialize(int _numParticles, const char* mapName, ve
     TerminalWarning(buf);
   }
   
-  numParticles = _numParticles;
-  particles.resize(numParticles);
-  stage0Weights.resize(numParticles);
-  stageRWeights.resize(numParticles);
   if(debug) printf(" Initializing particles: 0.0%%\r");
   fflush(stdout);
   for(int i=0; i<numParticles; i++){

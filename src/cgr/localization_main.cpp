@@ -663,8 +663,8 @@ void initialPoseCallback(const geometry_msgs::PoseWithCovarianceStamped &msg)
   float angle = 2.0*asin(msg.pose.pose.orientation.z);
   vector2f loc(V2COMP(msg.pose.pose.position));
   printf("Initializing CGR localization at %.3f,%.3f, %.2f\u00b0\n",V2COMP(loc), DEG(angle));
-  //localization->initialize(numParticles,curMapName.c_str(), loc, angle,sqrt(msg.pose.covariance[0]),sqrt(msg.pose.covariance[35]));
-  localization->initialize(numParticles,curMapName.c_str(), loc, angle,0.01,RAD(1.0));
+  //localization->initialize(curMapName.c_str(), loc, angle,sqrt(msg.pose.covariance[0]),sqrt(msg.pose.covariance[35]));
+  localization->initialize(curMapName.c_str(), loc, angle,0.01,RAD(1.0));
 }
 
 int main(int argc, char** argv)
@@ -720,11 +720,11 @@ int main(int argc, char** argv)
   string mapsFolder(ros::package::getPath("cgr_localization").append("/maps/"));
 
   //Initialize particle filter, sensor model, motion model, refine model
-  localization = new VectorLocalization2D(mapsFolder.c_str());
+  localization = new VectorLocalization2D(numParticles, mapsFolder.c_str());
   InitModels();
 
   //Initialize particle filter
-  localization->initialize(numParticles,curMapName.c_str(),initialLoc,initialAngle,locUncertainty,angleUncertainty);
+  localization->initialize(curMapName.c_str(),initialLoc,initialAngle,locUncertainty,angleUncertainty);
 
   //Initialize ros
   InitHandleStop(&run);

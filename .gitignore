@@ -18,3 +18,4 @@ build/*
 msg_gen/*
 srv_gen/*
 src/cgr_graphlab/*
+maps/*/*.dat

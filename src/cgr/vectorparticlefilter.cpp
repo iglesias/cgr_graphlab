@@ -25,6 +25,8 @@ static const bool UseAnalyticRender = true;
 
 //Pointer to the motion currently processed
 const VectorLocalization2D::Motion* MOTION = NULL;
+//Pointer to the parameters required to initialize particles
+const VectorLocalization2D::ParticleInitializer* PARTICLE_INITIALIZER = NULL;
 
 inline float eigenCross(const Vector2f &v1, const Vector2f &v2)
 {
@@ -85,11 +87,6 @@ void VectorLocalization2D::loadAtlas()
   if(maps.size()>0)
     currentMap = &maps[0];
   if(debug) printf("Done Loading Atlas.\n");
-}
-
-Particle2D VectorLocalization2D::createParticle(VectorMap* map, vector2f loc, float angle, float locationUncertainty, float angleUncertainty)
-{
-  return Particle2D(randn(locationUncertainty,loc.x), randn(locationUncertainty,loc.y), randn(angleUncertainty,angle),1.0);
 }
 
 void VectorLocalization2D::setLocation(vector2f loc, float angle, const char* map, float locationUncertainty, float angleUncertainty)
@@ -161,18 +158,10 @@ void VectorLocalization2D::initialize(const char* mapName, vector2f loc, float a
     TerminalWarning(buf);
   }
   
-  if(debug) printf(" Initializing particles: 0.0%%\r");
-  fflush(stdout);
-  for(int i=0; i<numParticles; i++){
-    particles[i] = Particle2D(DBL_MAX,DBL_MAX,0.0,0.0);
-  }
-  for(int i=0; i<numParticles; i++){
-    if(debug && (i%10)==0){
-      printf(" Initializing particles: %5.1f%%\r",float(i)/float(numParticles)*100.0);
-      fflush(stdout);
-    }
-    particles[i] = createParticle(currentMap, loc, angle, locationUncertainty, angleUncertainty);
-  }
+  ParticleInitializer particleInitializer(loc, angle, locationUncertainty, angleUncertainty);
+  PARTICLE_INITIALIZER = &particleInitializer;
+  graph->transform_vertices(initializeParticle);
+  PARTICLE_INITIALIZER = NULL;
   
   computeLocation(loc, angle);
   
@@ -198,8 +187,8 @@ void VectorLocalization2D::predict(float dx, float dy, float dtheta, const Motio
 
   Motion motion(dx, dy, dtheta, motionParams);
   MOTION = &motion;
-
   graph->transform_vertices(predictParticle);
+  MOTION = NULL;
 }
 
 float VectorLocalization2D::motionModelWeight(vector2f loc, float angle, const MotionModelParams &motionParams)
@@ -1396,4 +1385,30 @@ PoseReducer& PoseReducer::operator+=(const PoseReducer& other) {
   heading_y += other.heading_y;
 
   return *this;
+}
+
+void initializeParticle(graph_type::vertex_type& v)
+{
+  v.data() = Particle2D(
+      randn(PARTICLE_INITIALIZER->locationUncertainty, PARTICLE_INITIALIZER->loc.x),
+      randn(PARTICLE_INITIALIZER->locationUncertainty, PARTICLE_INITIALIZER->loc.y),
+      randn(PARTICLE_INITIALIZER->angleUncertainty, PARTICLE_INITIALIZER->angle),
+      1.0);
+}
+
+VectorLocalization2D::ParticleInitializer::ParticleInitializer()
+{
+  loc.zero();
+  angle = 0.0;
+  locationUncertainty = 0.0;
+  angleUncertainty = 0.0;
+}
+
+VectorLocalization2D::ParticleInitializer::ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty)
+{
+  loc.x = _loc.x;
+  loc.y = _loc.y;
+  angle = _angle;
+  locationUncertainty = _locationUncertainty;
+  angleUncertainty = _angleUncertainty;
 }

@@ -52,7 +52,6 @@ public:
 public:
   Particle2D() {weight = angle = 0.0; loc.zero();}
   Particle2D(float _x, float _y, float _theta, float _w) { loc.set(_x,_y); lastLoc.set(-DBL_MAX,-DBL_MAX); angle = _theta; weight = _w;}
-  Particle2D(vector2f _loc, float _theta, float _w) { loc = _loc; angle = _theta; weight = _w;}
   bool operator<(const Particle2D &other) {return weight<other.weight;}
   bool operator>(const Particle2D &other) {return weight>other.weight;}
 
@@ -97,13 +96,23 @@ public:
   } MotionModelParams;
 
   struct Motion {
-      Motion();
-      Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams);
+    Motion();
+    Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams);
 
-      double dx;
-      double dy;
-      double dtheta;
-      const MotionModelParams* motionParams;
+    double dx;
+    double dy;
+    double dtheta;
+    const MotionModelParams* motionParams;
+  };
+
+  struct ParticleInitializer {
+    ParticleInitializer();
+    ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty);
+
+    vector2f loc;
+    float angle;
+    float locationUncertainty;
+    float angleUncertainty;
   };
 
   class LidarParams{
@@ -286,8 +295,6 @@ public:
   void computeLocation(vector2f &loc, float &angle);
   /// Returns the current map name
   const char* getCurrentMapName(){return currentMap->mapName.c_str();}
-  /// Creates a particle with the specified properties
-  Particle2D createParticle(VectorMap* map, vector2f loc, float angle, float locationUncertainty, float angleUncertainty);
   /// Write to file run statistics about particle distribution
   void saveRunLog(FILE* f);
   /// Write to file riun-time profiling information
@@ -308,6 +315,9 @@ public:
 
 /// Predict particle motion by sampling from the motion model
 void predictParticle(graph_type::vertex_type& v);
+
+/// Initialize particle using location and uncertainties
+void initializeParticle(graph_type::vertex_type& v);
 
 /// MapReduce to compute the pose applying using maximum likelihood over the particle set
 struct PoseReducer : public graphlab::IS_POD_TYPE {

@@ -40,8 +40,10 @@ void VectorLocalization2D::LidarParams::initialize()
   }
 }
 
-VectorLocalization2D::VectorLocalization2D(int _numParticles, const char* _mapsFolder)
+VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder)
 {
+  assert(_numParticles > 0);
+
   mapsFolder = string(_mapsFolder);
   loadAtlas();
   numParticles = _numParticles;
@@ -50,6 +52,15 @@ VectorLocalization2D::VectorLocalization2D(int _numParticles, const char* _mapsF
   stageRWeights.resize(_numParticles);
   locCorrectionP0.zero();
   locCorrectionP1.zero();
+
+  //create distributed graph
+  for (int id = 0; id < numParticles; ++id)
+    _graph.add_vertex(id, Particle2D());
+
+  //commit the distributed graph, denoting that it is no longer to be modified
+  _graph.finalize();
+
+  graph = &_graph;
 }
 
 void VectorLocalization2D::loadAtlas()

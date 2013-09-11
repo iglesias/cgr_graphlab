@@ -220,7 +220,7 @@ protected:
   EvalValues laserEval;
     
 public:
-  VectorLocalization2D(int _numParticles, const char* _mapsFolder);
+  VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder);
   
   /// Sets Particle Filter LIDAR parameters
   void setParams(MotionModelParams _predictParams, LidarParams _lidarUpdateParams);

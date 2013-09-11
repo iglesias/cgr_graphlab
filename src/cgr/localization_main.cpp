@@ -719,17 +719,21 @@ int main(int argc, char** argv)
   //Load map
   string mapsFolder(ros::package::getPath("cgr_localization").append("/maps/"));
 
+  //Initialize ros
+  ros::init(argc, argv, "cgr_graphlab");
+//   InitHandleStop(&run);
+  ros::NodeHandle n;
+
+  graphlab::mpi_tools::init(argc, argv);
+  graphlab::distributed_control dc;
+  graph_type graph(dc);
+
   //Initialize particle filter, sensor model, motion model, refine model
-  localization = new VectorLocalization2D(numParticles, mapsFolder.c_str());
+  localization = new VectorLocalization2D(numParticles, graph, mapsFolder.c_str());
   InitModels();
 
   //Initialize particle filter
   localization->initialize(curMapName.c_str(),initialLoc,initialAngle,locUncertainty,angleUncertainty);
-
-  //Initialize ros
-  InitHandleStop(&run);
-  ros::init(argc, argv, "cgr_graphlab");
-  ros::NodeHandle n;
 
   //Publisher topics
   guiPublisher = n.advertise<DisplayMsg>("localization_gui", 1, true);
@@ -737,8 +741,8 @@ int main(int argc, char** argv)
   localizationPublisher = n.advertise<LocalizationMsg>("localization", 1, true);
   particlesPublisher = n.advertise<geometry_msgs::PoseArray>("particlecloud", 1, false);
   Sleep(0.1);
-  localizationServer = n.advertiseService("localization_interface", &localizationCallback);
 
+  localizationServer = n.advertiseService("localization_interface", &localizationCallback);
 
   //Initialize ros for sensor and odometry topics
   Main main;
@@ -758,6 +762,8 @@ int main(int argc, char** argv)
     main.publishLocation();
     Sleep(0.005);
   }
+
+  graphlab::mpi_tools::finalize();
 
   if(debugLevel>=0) printf("closing.\n");
   return 0;

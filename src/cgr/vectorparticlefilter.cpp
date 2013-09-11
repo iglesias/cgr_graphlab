@@ -27,6 +27,8 @@ static const bool UseAnalyticRender = true;
 const VectorLocalization2D::Motion* MOTION = NULL;
 //Pointer to the parameters required to initialize particles
 const VectorLocalization2D::ParticleInitializer* PARTICLE_INITIALIZER = NULL;
+//Set of particles set during graph transformations
+std::vector<Particle2D> particles;
 
 inline float eigenCross(const Vector2f &v1, const Vector2f &v2)
 {
@@ -549,7 +551,10 @@ void predictParticle(graph_type::vertex_type& v)
   if(debug)
     printf("delta: %f,%f %f\u00b0 ", V2COMP(delta), DEG(dtheta));
 
-  v.data().loc += delta;
+  v.data().loc.x += delta.x;
+  v.data().loc.y += delta.y;
+
+  particles[v.id()] = v.data();
 
   if(debug)
     printf("after: %7.2f,%7.2f %6.2f\u00b0\n", v.data().loc.x, v.data().loc.y, DEG(v.data().angle));
@@ -975,6 +980,11 @@ void VectorLocalization2D::reducePointCloud(const std::vector< vector2f >& point
   }
 }
 
+void VectorLocalization2D::getParticles(std::vector<Particle2D> &_particles)
+{
+  _particles = particles;
+}
+
 void VectorLocalization2D::refinePointCloud(const vector<vector2f> &pointCloud, const vector<vector2f> &pointNormals, const PointCloudParams &pointCloudParams)
 {
   //FunctionTimer ft(__PRETTY_FUNCTION__);
@@ -1394,6 +1404,8 @@ void initializeParticle(graph_type::vertex_type& v)
       randn(PARTICLE_INITIALIZER->locationUncertainty, PARTICLE_INITIALIZER->loc.y),
       randn(PARTICLE_INITIALIZER->angleUncertainty, PARTICLE_INITIALIZER->angle),
       1.0);
+
+  particles[v.id()] = v.data();
 }
 
 VectorLocalization2D::ParticleInitializer::ParticleInitializer()

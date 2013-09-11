@@ -207,7 +207,6 @@ protected:
   float currentAngle;
   vector2f currentLocStdDev;
   float currentAngleStdDev;
-  vector<Particle2D> particles;
   vector<Particle2D> particlesRefined;
   int numParticles;
   vector<float> samplingDensity;
@@ -310,7 +309,7 @@ public:
   /// Removes duplicate points with the same observation angle and range
   void reducePointCloud(const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, vector< vector2f >& reducedPointCloud, vector< vector2f >& reducedPointNormals);
   /// Returns current particles
-  void getParticles(vector<Particle2D> &_particles){_particles = particles;}
+  void getParticles(std::vector<Particle2D> &_particles);
 };
 
 /// Predict particle motion by sampling from the motion model

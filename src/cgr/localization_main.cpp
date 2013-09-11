@@ -49,6 +49,20 @@
 #include "configreader.h"
 #include "plane_filtering.h"
 
+class Main {
+  public:
+    void lidarCallback(const sensor_msgs::LaserScan& msg);
+
+    void depthCallback(const sensor_msgs::Image& msg);
+
+    void publishLocation(bool limitRate = true);
+
+  private:
+    tf::TransformListener transformListener;
+
+    tf::TransformBroadcaster transformBroadcaster;
+}; // class Main
+
 using namespace std;
 
 bool run = true;
@@ -71,8 +85,6 @@ Publisher filteredPointCloudPublisher;
 Publisher completePointCloudPublisher;
 ServiceServer localizationServer;
 Publisher particlesPublisher;
-tf::TransformBroadcaster *transformBroadcaster;
-tf::TransformListener *transformListener;
 DisplayMsg guiMsg;
 sensor_msgs::PointCloud filteredPointCloudMsg; /// FSPF point cloud
 sensor_msgs::PointCloud completePointCloudMsg; /// obtained from the depth image, for debugging
@@ -100,9 +112,6 @@ PlaneFilter::PlaneFilterParams filterParams;
 PlaneFilter planeFilter;
 
 void publishGUI();
-void lidarCallback(const sensor_msgs::LaserScan& msg);
-void depthCallback(const sensor_msgs::Image& msg);
-void publishLocation(bool limitRate=true);
 
 bool localizationCallback(LocalizationInterfaceSrv::Request& req, LocalizationInterfaceSrv::Response& res)
 {
@@ -139,7 +148,7 @@ void drawPointCloud()
   }
 }
 
-void publishLocation(bool limitRate)
+void Main::publishLocation(bool limitRate)
 {
   static double tLast = 0;
   if(GetTimeSec()-tLast<0.03 && limitRate)
@@ -195,7 +204,7 @@ void publishLocation(bool limitRate)
   //Publish map to base_footprint tf
   try{
     tf::StampedTransform odomToBaseTf;
-    transformListener->lookupTransform("odom","base_link",ros::Time(0), odomToBaseTf);
+    transformListener.lookupTransform("odom","base_link",ros::Time(0), odomToBaseTf);
 
     vector2f map_base_trans = curLoc;
     float map_base_rot = curAngle;
@@ -212,7 +221,7 @@ void publishLocation(bool limitRate)
     tf::Transform mapToOdomTf;
     mapToOdomTf.setOrigin(tf::Vector3(V2COMP(map_odom_trans), 0.0));
     mapToOdomTf.setRotation(tf::Quaternion(tf::Vector3(0,0,1),map_odom_rot));
-    transformBroadcaster->sendTransform(tf::StampedTransform(mapToOdomTf, ros::Time::now(), "map", "odom"));
+    transformBroadcaster.sendTransform(tf::StampedTransform(mapToOdomTf, ros::Time::now(), "map", "odom"));
   }
   catch (tf::TransformException ex){
     //Do nothing: We'll just try again next time
@@ -473,7 +482,7 @@ void odometryCallback(const nav_msgs::OdometryConstPtr &msg)
   loc = newLoc;
 }
 
-void lidarCallback(const sensor_msgs::LaserScan &msg)
+void Main::lidarCallback(const sensor_msgs::LaserScan &msg)
 {
   //FunctionTimer ft(__PRETTY_FUNCTION__);
   if(debugLevel>0){
@@ -482,7 +491,7 @@ void lidarCallback(const sensor_msgs::LaserScan &msg)
 
   tf::StampedTransform baseLinkToLaser;
   try{
-    transformListener->lookupTransform("base_link", msg.header.frame_id, ros::Time(0), baseLinkToLaser);
+    transformListener.lookupTransform("base_link", msg.header.frame_id, ros::Time(0), baseLinkToLaser);
   }
   catch(tf::TransformException ex){
     ROS_ERROR("%s",ex.what());
@@ -531,7 +540,7 @@ void lidarCallback(const sensor_msgs::LaserScan &msg)
 }
 
 
-void depthCallback(const sensor_msgs::Image &msg)
+void Main::depthCallback(const sensor_msgs::Image &msg)
 {
   //Copy the depth data
   if(debugLevel>0){
@@ -546,8 +555,8 @@ void depthCallback(const sensor_msgs::Image &msg)
 
   tf::StampedTransform baseLinkToKinect;
   try{
-//    transformListener->lookupTransform("base_link", msg.header.frame_id, ros::Time(0), baseLinkToKinect);
-   transformListener->lookupTransform("base_link", "camera_link", ros::Time(0), baseLinkToKinect);
+//    transformListener.lookupTransform("base_link", msg.header.frame_id, ros::Time(0), baseLinkToKinect);
+    transformListener.lookupTransform("base_link", "camera_link", ros::Time(0), baseLinkToKinect);
   }
   catch(tf::TransformException ex){
     ROS_ERROR("%s",ex.what());
@@ -730,14 +739,15 @@ int main(int argc, char** argv)
   Sleep(0.1);
   localizationServer = n.advertiseService("localization_interface", &localizationCallback);
 
+
   //Initialize ros for sensor and odometry topics
+  Main main;
   ros::Subscriber odometrySubscriber = n.subscribe("odom", 20, odometryCallback);
-  ros::Subscriber lidarSubscriber = n.subscribe("scan", 5, lidarCallback);
+  ros::Subscriber lidarSubscriber = n.subscribe("scan", 5, &Main::lidarCallback, &main);
 //   ros::Subscriber kinectSubscriber = n.subscribe("kinect_depth", 1, depthCallback);
-  ros::Subscriber kinectSubscriber = n.subscribe("/camera/depth/image_raw", 1, depthCallback);
+  ros::Subscriber kinectSubscriber = n.subscribe("/camera/depth/image_raw", 1, &Main::depthCallback, &main);
   ros::Subscriber initialPoseSubscriber = n.subscribe("initialpose", 1, initialPoseCallback);
-  transformListener = new tf::TransformListener(ros::Duration(10.0));
-  transformBroadcaster = new tf::TransformBroadcaster();
+
 
   filteredPointCloudPublisher = n.advertise<sensor_msgs::PointCloud>("Cobot/Kinect/FilteredPointCloud", 1);
   completePointCloudPublisher = n.advertise<sensor_msgs::PointCloud>("Cobot/Kinect/CompletePointCloud", 1);
@@ -745,7 +755,7 @@ int main(int argc, char** argv)
   while(ros::ok() && run){
     ros::spinOnce();
     publishGUI();
-    publishLocation();
+    main.publishLocation();
     Sleep(0.005);
   }
 

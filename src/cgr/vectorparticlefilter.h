@@ -277,7 +277,7 @@ public:
   /// Observation likelihood based on LIDAR obhservation
   float observationWeightLidar(vector2f loc, float angle, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
   /// Observation likelihood based on point cloud obhservation
-  float observationWeightPointCloud(vector2f loc, float angle, vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams);
+  float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams);
   /// Probability of specified pose corresponding to motion model
   float motionModelWeight(vector2f loc, float angle, const VectorLocalization2D::MotionModelParams& motionParams);
   /// Set pose with specified uncertainty

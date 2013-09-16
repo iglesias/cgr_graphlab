@@ -205,7 +205,7 @@ float VectorLocalization2D::motionModelWeight(vector2f loc, float angle, const M
   return w;
 }
 
-float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angle, vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const PointCloudParams & pointCloudParams)
+float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams & pointCloudParams)
 {
   //static const bool UseAnalyticRender = false;
   static const bool debug = false;

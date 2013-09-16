@@ -220,6 +220,7 @@ float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angl
   float curAngle;
   
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
 
   float a0 = angle-0.5*pointCloudParams.fieldOfView;
   float a1 = angle+0.5*pointCloudParams.fieldOfView;
@@ -284,6 +285,8 @@ float VectorLocalization2D::observationWeightLidar(vector2f loc, float angle, co
   
   vector2f laserLoc = loc + vector2f(lidarParams.laserToBaseTrans.x(),lidarParams.laserToBaseTrans.y()).rotate(angle);
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
+
   if(UseAnalyticRender){
     lineCorrespondences = currentMap->getRayToLineCorrespondences(laserLoc, angle, lidarParams.angleResolution, numRays, 0.0, maxRange, true, &lines);
   }else{
@@ -852,6 +855,8 @@ void VectorLocalization2D::refineLocationLidar(vector2f& loc, float& angle, floa
   Vector2f laserLocE = Vector2f(V2COMP(loc)) + robotAngle*(lidarParams.laserToBaseTrans);
   vector2f laserLoc(laserLocE.x(), laserLocE.y());
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
+
   if(UseAnalyticRender){
     lineCorrespondences = currentMap->getRayToLineCorrespondences(laserLoc, angle, lidarParams.angleResolution, lidarParams.numRays, lidarParams.minRange, lidarParams.maxRange, true, &lines);
   }else{
@@ -884,6 +889,8 @@ void VectorLocalization2D::refineLocationPointCloud(vector2f& loc, float& angle,
   float a0 = angle-0.5*pointCloudParams.fieldOfView;
   float a1 = angle+0.5*pointCloudParams.fieldOfView;
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
+
   if(UseAnalyticRender){
     lineCorrespondences = currentMap->getRayToLineCorrespondences(loc, angle, a0, a1, pointCloud, pointCloudParams.minRange, pointCloudParams.maxRange, true, &lines);
   }else{

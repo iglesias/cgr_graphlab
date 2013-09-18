@@ -46,12 +46,12 @@ A Particle for 2D localization
 **/
 class Particle2D {
 public:
-  vector2f loc, lastLoc;
+  vector2f loc;
   float angle;
   float weight;
 public:
   Particle2D() {weight = angle = 0.0; loc.zero();}
-  Particle2D(float _x, float _y, float _theta, float _w) { loc.set(_x,_y); lastLoc.set(-DBL_MAX,-DBL_MAX); angle = _theta; weight = _w;}
+  Particle2D(float _x, float _y, float _theta, float _w) { loc.set(_x,_y); angle = _theta; weight = _w;}
   bool operator<(const Particle2D &other) {return weight<other.weight;}
   bool operator>(const Particle2D &other) {return weight>other.weight;}
 
@@ -60,17 +60,15 @@ public:
     weight = other.weight;
     loc.x = other.loc.x;
     loc.y = other.loc.y;
-    lastLoc.x = other.lastLoc.x;
-    lastLoc.y = other.lastLoc.y;
     return *this;
   } 
 
   void save(graphlab::oarchive &oarc) const {
-    oarc << angle << weight << loc.x << loc.y << lastLoc.x << lastLoc.y;
+    oarc << angle << weight << loc.x << loc.y;
   }
 
   void load(graphlab::iarchive &iarc) {
-    iarc >> angle >> weight >> loc.x >> loc.y >> lastLoc.x >> lastLoc.y;
+    iarc >> angle >> weight >> loc.x >> loc.y;
   }
 };
 

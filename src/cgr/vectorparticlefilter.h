@@ -173,6 +173,7 @@ public:
     NaiveResampling,
     LowVarianceResampling,
     SensorResettingResampling,
+    DistributedResampling,
   };
 
   struct ParticleInitializer {
@@ -296,6 +297,8 @@ public:
   void lowVarianceResample();
   /// Resample particles using naive resampling
   void naiveResample();
+  /// Resample particles in a distributed fashion
+  void distributedResample();
   /// Compute the maximum likelihood location based on particle spread
   void computeLocation(vector2f &loc, float &angle);
   /// Returns the current map name
@@ -335,6 +338,9 @@ void samplingDensityPointCloudParticle(graph_type::vertex_type& v);
 /// Compute particle weights
 void updatePointCloudParticle(graph_type::vertex_type& v);
 
+/// Resample a particle
+void distributedResampleParticle(graph_type::vertex_type& v);
+
 /// MapReduce to compute the pose applying using maximum likelihood over the particle set
 struct PoseReducer : public graphlab::IS_POD_TYPE {
   double x;
@@ -351,10 +357,19 @@ struct PoseReducer : public graphlab::IS_POD_TYPE {
 struct SamplingDensityReducer : public graphlab::IS_POD_TYPE {
   float samplingDensity;
 
-  static SamplingDensityReducer computeTotalDensity(const graph_type::vertex_type& v);
+  static SamplingDensityReducer getTotalDensity(const graph_type::vertex_type& v);
 
   SamplingDensityReducer& operator+=(const SamplingDensityReducer& other);
-};
+}; // struct SamplingDensityReducer
+
+/// MapReduce to obtain the maximum particle weight
+struct MaxWeightReducer : public graphlab::IS_POD_TYPE {
+  float weight;
+
+  static MaxWeightReducer getMaxWeight(const graph_type::vertex_type& v);
+
+  MaxWeightReducer& operator+=(const MaxWeightReducer& other);
+}; // struct MaxWeightReducer
 
 #endif //VECTORPARTICLEFILTER_H
 

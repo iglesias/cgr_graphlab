@@ -40,6 +40,8 @@ std::vector<Particle2D> particles;
 std::vector<float> SAMPLING_DENSITY;
 //Total sampling density used for normalization
 float TOTAL_DENSITY;
+// Maximum particle weight
+float MAX_WEIGHT;
 
 //Per-particle statistics of performance
 std::vector<VectorLocalization2D::EvalValues> PARTICLE_POINT_CLOUD_EVAL;
@@ -433,10 +435,9 @@ void VectorLocalization2D::updatePointCloud(const vector<vector2f>& pointCloud, 
 
   graph->transform_vertices(samplingDensityPointCloudParticle);
 
-  SamplingDensityReducer r = graph->map_reduce_vertices<SamplingDensityReducer>(SamplingDensityReducer::computeTotalDensity);
   // Compute total density to later normalize densities, not really necessary though since resampling
   // does not require normalized weights
-  TOTAL_DENSITY = r.samplingDensity;
+  TOTAL_DENSITY = graph->map_reduce_vertices<SamplingDensityReducer>(SamplingDensityReducer::getTotalDensity).samplingDensity;
 
   graph->transform_vertices(updatePointCloudParticle);
 
@@ -475,7 +476,7 @@ void predictParticle(graph_type::vertex_type& v)
   v.data().loc.x += delta.x;
   v.data().loc.y += delta.y;
 
-  particles[v.id()] = v.data();
+//   particles[v.id()] = v.data();
 
   if(debug)
     printf("after: %7.2f,%7.2f %6.2f\u00b0\n", v.data().loc.x, v.data().loc.y, DEG(v.data().angle));
@@ -945,7 +946,7 @@ void refinePointCloudParticle(graph_type::vertex_type& v)
 
 void updatePointCloudParticle(graph_type::vertex_type& v)
 {
-  static const bool debug = true;
+  static const bool debug = false;
 
   if(debug) printf("\nParticle weights:\n");
 
@@ -1016,14 +1017,17 @@ void VectorLocalization2D::computeLocation(vector2f& loc, float& angle)
 void VectorLocalization2D::resample(Resample type)
 {
   switch(type){
-    case NaiveResampling:{
-      naiveResample();
-    }break;
-    case LowVarianceResampling:{
-      lowVarianceResample();
-    }break;
-    case SensorResettingResampling:{
-    }break;
+  case NaiveResampling:
+    naiveResample();
+    break;
+  case LowVarianceResampling:
+    lowVarianceResample();
+    break;
+  case SensorResettingResampling:
+    break;
+  case DistributedResampling:
+    distributedResample();
+    break;
   }
 }
 
@@ -1141,6 +1145,28 @@ void VectorLocalization2D::naiveResample()
   }
   particles = newParticles;
   oldParticles = particles;
+}
+
+void VectorLocalization2D::distributedResample()
+{
+  // Find the largest particle weight.
+  MAX_WEIGHT = graph->map_reduce_vertices<MaxWeightReducer>(MaxWeightReducer::getMaxWeight).weight;
+  // Resample particles.
+  graph->transform_vertices(distributedResampleParticle);
+}
+
+void distributedResampleParticle(graph_type::vertex_type& v)
+{
+  size_t index = graphlab::random::uniform(size_t(0), particles.size()-1);
+  float beta = graphlab::random::uniform(0.0f, 2*MAX_WEIGHT);
+
+  while (beta > particles[index].weight)
+  {
+    beta -= particles[index].weight;
+    index = (index + 1) % particles.size();
+  }
+
+  v.data() = particles[index];
 }
 
 void VectorLocalization2D::drawDisplay(vector<float> &lines_p1x, vector<float> &lines_p1y, vector<float> &lines_p2x, vector<float> &lines_p2y, vector<uint32_t> &lines_color,
@@ -1412,7 +1438,7 @@ PoseReducer& PoseReducer::operator+=(const PoseReducer& other) {
   return *this;
 }
 
-SamplingDensityReducer SamplingDensityReducer::computeTotalDensity(const graph_type::vertex_type& v)
+SamplingDensityReducer SamplingDensityReducer::getTotalDensity(const graph_type::vertex_type& v)
 {
   SamplingDensityReducer r;
   r.samplingDensity = SAMPLING_DENSITY[v.id()];
@@ -1422,6 +1448,19 @@ SamplingDensityReducer SamplingDensityReducer::computeTotalDensity(const graph_t
 SamplingDensityReducer& SamplingDensityReducer::operator+=(const SamplingDensityReducer& other)
 {
   samplingDensity += other.samplingDensity;
+  return *this;
+}
+
+MaxWeightReducer MaxWeightReducer::getMaxWeight(const graph_type::vertex_type& v)
+{
+  MaxWeightReducer r;
+  r.weight = particles[v.id()].weight;
+  return r;
+}
+
+MaxWeightReducer& MaxWeightReducer::operator+=(const MaxWeightReducer& other)
+{
+  weight = std::max(weight, other.weight);
   return *this;
 }
 

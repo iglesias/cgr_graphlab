@@ -147,7 +147,7 @@ VectorMap::~VectorMap()
 {
 }
 
-std::vector< int >* VectorMap::getVisibilityList(float x, float y)
+const std::vector< int >* VectorMap::getVisibilityList(float x, float y) const
 {
   int xInd = bound((x-minX)/visListResolution,0.0,visListWidth-1.0);
   int yInd = bound((y-minY)/visListResolution,0.0,visListHeight-1.0);
@@ -162,7 +162,7 @@ vector<float> VectorMap::getRayCast(vector2f loc, float angle, float da, int num
   float a1 = angle + 0.5*intervals*da;
   vector<float> rayCast;
   rayCast.clear();
-  vector< int >* visibilityList;
+  const vector< int >* visibilityList;
   
   for(float a=a0; a<a1; a += da){
     float ray = maxRange;
@@ -217,7 +217,7 @@ vector<float> VectorMap::getRayCast(vector2f loc, float angle, float da, int num
   return rayCast;
 }
 
-int VectorMap::getLineCorrespondence(vector2f loc, float angle, float minRange, float maxRange, const std::vector< int >& visibilityList)
+int VectorMap::getLineCorrespondence(vector2f loc, float angle, float minRange, float maxRange, const std::vector<int>& visibilityList) const
 {
   vector2f loc1, loc2, dir;
   dir.heading(angle);
@@ -240,7 +240,7 @@ int VectorMap::getLineCorrespondence(vector2f loc, float angle, float minRange, 
   return bestLine;
 }
 
-vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, float a0, float a1, const vector<vector2f> pointCloud, float minRange, float maxRange, bool analytical, vector<line2f> *lines )
+vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, float a0, float a1, const vector<vector2f>& pointCloud, float minRange, float maxRange, bool analytical, vector<line2f> *lines) const
 {
   //FunctionTimer ft(__FUNCTION__);
   static const bool UsePreRender = true;
@@ -251,6 +251,7 @@ vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, fl
   if(UsePreRender && preRenderExists)
     locVisibilityList = *getVisibilityList(loc);
   else
+    //FIXME this look like a bug, locVisibilityList = getSceneLines(loc, maxRange)
     getSceneLines(loc,maxRange);
   
   if(analytical && lines!=NULL){
@@ -279,7 +280,7 @@ vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, fl
   return correspondences;
 }
 
-vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float a0, float a1, float da, float minRange, float maxRange)
+vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float a0, float a1, float da, float minRange, float maxRange) const
 {
   //FunctionTimer ft(__PRETTY_FUNCTION__);
   vector<int> correspondences;
@@ -295,7 +296,7 @@ vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float a0, float
   return correspondences;
 }
 
-vector< VectorMap::LineSegment > VectorMap::sortLineSegments(vector2f& loc, vector< line2f >& lines)
+vector< VectorMap::LineSegment > VectorMap::sortLineSegments(const vector2f& loc, const vector< line2f >& lines) const
 {
   static const float eps = RAD(0.001);
   vector< VectorMap::LineSegment > segments;
@@ -349,7 +350,7 @@ vector< VectorMap::LineSegment > VectorMap::sortLineSegments(vector2f& loc, vect
   return segments;
 }
 
-vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, float da, int numRays, float minRange, float maxRange, bool analytical, vector< line2f > *lines)
+vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, float da, int numRays, float minRange, float maxRange, bool analytical, vector< line2f > *lines) const
 {
   //FunctionTimer ft("getRayToLineCorrespondences");
   float intervals = numRays - 1.0;
@@ -389,7 +390,7 @@ vector<int> VectorMap::getRayToLineCorrespondences(vector2f loc, float angle, fl
     return getRayToLineCorrespondences(loc,a0,a1,da,minRange,maxRange);
 }
 
-std::vector<int> VectorMap::getSceneLines(vector2f loc, float maxRange)
+std::vector<int> VectorMap::getSceneLines(vector2f loc, float maxRange) const
 {
   static const float eps = 1e-6;
   vector<int> linesList, sceneLines;
@@ -571,7 +572,7 @@ void VectorMap::trimOcclusion2(vector2f& loc_g, line2f& line1, line2f& line2, ve
   }
 }
 
-void VectorMap::trimOcclusion(vector2f& loc, line2f& line1, line2f& line2, vector< line2f >& sceneLines)
+void VectorMap::trimOcclusion(const vector2f& loc, const line2f& line1, line2f& line2, vector< line2f >& sceneLines) const
 {
   // Checks if any part of line2 is occluded by line1 when seen from loc, and if so, line2 is trimmed accordingly, adding sub-lines to sceneLines if necessary
   static const float eps = 1e-4;
@@ -662,7 +663,7 @@ void VectorMap::trimOcclusion(vector2f& loc, line2f& line1, line2f& line2, vecto
   }
 }
 
-vector<line2f> VectorMap::sceneRender(vector2f loc, float a0, float a1)
+vector<line2f> VectorMap::sceneRender(vector2f loc, float a0, float a1) const
 {
   //FunctionTimer ft("Scene Render");
   static const float eps = 0.001;
@@ -677,7 +678,7 @@ vector<line2f> VectorMap::sceneRender(vector2f loc, float a0, float a1)
   
   vector<line2f> scene, sceneCleaned;
   vector<line2f> linesList;
-  vector<int>* locVisibilityList;
+  const vector<int>* locVisibilityList;
   
   scene.clear();
   sceneCleaned.clear();
@@ -686,8 +687,10 @@ vector<line2f> VectorMap::sceneRender(vector2f loc, float a0, float a1)
   if(preRenderExists){
     locVisibilityList = getVisibilityList(loc);
   }else{
-    locVisibilityList = new vector<int>;
-    *locVisibilityList = getSceneLines(loc,MaxRange);
+    // ugly patch so that locVisibilityList can be const
+    vector<int>* locVisibilityListAlloc = new vector<int>;
+    *locVisibilityListAlloc = getSceneLines(loc,MaxRange);
+    locVisibilityList = locVisibilityListAlloc;
   }
   for(unsigned int i=0; i<locVisibilityList->size(); i++){
     linesList.push_back(lines[locVisibilityList->at(i)]);

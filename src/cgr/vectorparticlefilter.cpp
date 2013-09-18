@@ -31,9 +31,15 @@ const VectorLocalization2D::ParticleInitializer* PARTICLE_INITIALIZER = NULL;
 const VectorLocalization2D::Motion* MOTION = NULL;
 //Pointer to the current refinement parameters
 const VectorLocalization2D::Refinement* REFINEMENT = NULL;
+//Pointer to the curent update parameters
+const VectorLocalization2D::Update* UPDATE = NULL;
 
 //Set of particles set during graph transformations
 std::vector<Particle2D> particles;
+//Densities computed for each particle to perform update
+std::vector<float> SAMPLING_DENSITY;
+//Total sampling density used for normalization
+float TOTAL_DENSITY;
 
 //Per-particle statistics of performance
 std::vector<VectorLocalization2D::EvalValues> PARTICLE_POINT_CLOUD_EVAL;
@@ -71,6 +77,7 @@ VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph
   loadAtlas();
   numParticles = _numParticles;
   particles.resize(_numParticles);
+  SAMPLING_DENSITY.resize(_numParticles);
 
   //create distributed graph
   for (int id = 0; id < numParticles; ++id)
@@ -212,7 +219,7 @@ void VectorLocalization2D::predict(float dx, float dy, float dtheta, const Motio
   MOTION = NULL;
 }
 
-float VectorLocalization2D::motionModelWeight(vector2f loc, float angle, const MotionModelParams &motionParams)
+float VectorLocalization2D::motionModelWeight(vector2f loc, float angle, const MotionModelParams &motionParams) const
 {
   float sqDensityKernelSize = sq(motionParams.kernelSize);
   float w = 0.0;
@@ -224,7 +231,7 @@ float VectorLocalization2D::motionModelWeight(vector2f loc, float angle, const M
   return w;
 }
 
-float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams & pointCloudParams)
+float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams & pointCloudParams) const
 {
   //static const bool UseAnalyticRender = false;
   static const bool debug = false;
@@ -237,7 +244,7 @@ float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angl
   float sqMaxRange = sq(maxRange);
   float stdDev = pointCloudParams.stdDev;
   float curAngle;
-  
+
   vector<line2f> lines;
   vector<int> lineCorrespondences;
 
@@ -249,15 +256,15 @@ float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angl
     lineCorrespondences = currentMap->getRayToLineCorrespondences(loc, angle, a0, a1, pointCloud, minRange, maxRange);
     lines = currentMap->lines;
   }
-  
+
   float logTotalWeight = 0.0;
-  
-  Matrix2f rotMat1; 
+
+  Matrix2f rotMat1;
   rotMat1 = Rotation2Df(angle);
-  
+
   int numCorrespondences = 0;
   Vector2f heading, scanPoint, lineNorm, curPoint, attraction, locE(V2COMP(loc)), rotatedNormal;
-  
+
   for(int i=0; i<pointCloud.size(); i++){
     curPoint = rotMat1*Vector2f(V2COMP(pointCloud[i])) + locE;
     attraction = Vector2f(0.0,0.0);
@@ -380,6 +387,7 @@ void VectorLocalization2D::updateLidar(const LidarParams &lidarParams, const Mot
   float sqDensityKernelSize = sq(lidarParams.kernelSize);
   float totalDensity = 0.0;
   int N = int(particlesRefined.size());
+  static vector<float> samplingDensity;
   if(samplingDensity.size()!=N)
     samplingDensity.resize(N);
   if(debug) printf("\nParticle samplingDensity:\n");
@@ -414,48 +422,25 @@ void VectorLocalization2D::updateLidar(const LidarParams &lidarParams, const Mot
   updateTime = GetTimeSec() - tStart;
 }
 
-void VectorLocalization2D::updatePointCloud(vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const MotionModelParams &motionParams, const PointCloudParams &pointCloudParams)
+void VectorLocalization2D::updatePointCloud(const vector<vector2f>& pointCloud, vector<vector2f>& pointNormals, const MotionModelParams &motionParams, const PointCloudParams &pointCloudParams)
 {
   static const bool debug = false;
   static const bool usePermissibility = true;
-  
+
   double tStart = GetTimeSec();
-  
-  //Compute the sampling density
-  float sqDensityKernelSize = sq(pointCloudParams.kernelSize);
-  float totalDensity = 0.0;
-  int N = int(particlesRefined.size());
-  if(samplingDensity.size()!=N)
-    samplingDensity.resize(N);
-  if(debug) printf("\nParticle samplingDensity:\n");
-  for(int i=0; i<N; i++){
-    float w = 0.99;
-    for(int j=0; j<N; j++){
-      if(i==j)
-        continue;
-      if( (particlesRefined[j].loc - particlesRefined[i].loc).sqlength() < sqDensityKernelSize && fabs(angle_diff(particlesRefined[j].angle, particlesRefined[i].angle))<RAD(20.0))
-        //if( (particlesRefined[j].loc - particlesRefined[i].loc).sqlength() < sqDensityKernelSize)
-        w++;
-    }
-    samplingDensity[i] = w;
-    totalDensity += w;
-    if(debug) printf("%2d:%f\n",i,w);
-  }
-  // Normalize densities, not really necessary since resampling does not require normalized weights
-  for(int i=0; i<N; i++){
-    samplingDensity[i] /= totalDensity;
-  }
-  
-  //Compute importance weights = observation x motion / samplingDensity
-  if(debug) printf("\nParticle weights:\n");
-  for(int i=0; i<N; i++){
-    Particle2D &p = particlesRefined[i];
-    float w1 = observationWeightPointCloud(p.loc, p.angle, pointCloud, pointNormals, pointCloudParams);
-    float w2 = motionModelWeight(p.loc, p.angle, motionParams);
-    p.weight = w1*w2/samplingDensity[i];
-    if(debug) printf("%2d: %f , %f , %f\n",i,w1,w2,p.weight);
-  }
-  
+
+  Update update(motionParams, pointCloud, pointNormals, pointCloudParams);
+  UPDATE = &update;
+
+  graph->transform_vertices(samplingDensityPointCloudParticle);
+
+  SamplingDensityReducer r = graph->map_reduce_vertices<SamplingDensityReducer>(SamplingDensityReducer::computeTotalDensity);
+  // Compute total density to later normalize densities, not really necessary though since resampling
+  // does not require normalized weights
+  TOTAL_DENSITY = r.samplingDensity;
+
+  graph->transform_vertices(updatePointCloudParticle);
+
   updateTime = GetTimeSec() - tStart;
 }
 
@@ -961,6 +946,44 @@ void refinePointCloudParticle(graph_type::vertex_type& v)
   particles[v.id()] = v.data();
 }
 
+void updatePointCloudParticle(graph_type::vertex_type& v)
+{
+  static const bool debug = true;
+
+  if(debug) printf("\nParticle weights:\n");
+
+  // Compute importance weights = observation x motion / samplingDensity
+  float w1 = localization->observationWeightPointCloud(v.data().loc, v.data().angle, *UPDATE->pointCloud, *UPDATE->pointNormals, *UPDATE->pointCloudParams);
+  float w2 = localization->motionModelWeight(v.data().loc, v.data().angle, *UPDATE->motionParams);
+  v.data().weight = w1*w2/SAMPLING_DENSITY[v.id()]/TOTAL_DENSITY;
+
+  if(debug) printf("%2lu: %f , %f , %f\n", v.id(), w1, w2, v.data().weight);
+}
+
+void samplingDensityPointCloudParticle(graph_type::vertex_type& v)
+{
+  static const bool debug = false;
+
+  //Compute the sampling density
+  float sqDensityKernelSize = sq(UPDATE->pointCloudParams->kernelSize);
+
+  if(debug) printf("\nParticle samplingDensity:\n");
+
+  float w = 0.99;
+  for(int i=0; i<localization->getNumParticles(); i++){
+    if(i==v.id())
+      continue;
+
+    if( (particles[i].loc - v.data().loc).sqlength() < sqDensityKernelSize && fabs(angle_diff(particles[i].angle, v.data().angle))<RAD(20.0))
+      w++;
+  }
+
+  assert(SAMPLING_DENSITY.size() > v.id());
+  SAMPLING_DENSITY[v.id()] = w;
+
+  if(debug) printf("%2lu:%f\n", v.id(), w);
+}
+
 void VectorLocalization2D::computeLocation(vector2f& loc, float& angle)
 {
   //sum all the poses (taking care od adding up headings appropriately)
@@ -1354,6 +1377,23 @@ VectorLocalization2D::Refinement::Refinement(const std::vector<vector2f>& _point
   pointCloudParams = &_pointCloudParams;
 }
 
+VectorLocalization2D::Update::Update()
+{
+  motionParams = NULL;
+  pointCloud = NULL;
+  pointNormals = NULL;
+  pointCloudParams = NULL;
+}
+
+VectorLocalization2D::Update::Update(const MotionModelParams& _motionParams, const std::vector<vector2f>& _pointCloud,
+    const std::vector<vector2f>& _pointNormals, const PointCloudParams& _pointCloudParams)
+{
+  motionParams = &_motionParams;
+  pointCloud = &_pointCloud;
+  pointNormals = &_pointNormals;
+  pointCloudParams = &_pointCloudParams;
+}
+
 PoseReducer PoseReducer::getPose(const graph_type::vertex_type& v) {
   PoseReducer r;
 
@@ -1373,6 +1413,19 @@ PoseReducer& PoseReducer::operator+=(const PoseReducer& other) {
   heading_x += other.heading_x;
   heading_y += other.heading_y;
 
+  return *this;
+}
+
+SamplingDensityReducer SamplingDensityReducer::computeTotalDensity(const graph_type::vertex_type& v)
+{
+  SamplingDensityReducer r;
+  r.samplingDensity = SAMPLING_DENSITY[v.id()];
+  return r;
+}
+
+SamplingDensityReducer& SamplingDensityReducer::operator+=(const SamplingDensityReducer& other)
+{
+  samplingDensity += other.samplingDensity;
   return *this;
 }
 

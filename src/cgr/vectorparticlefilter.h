@@ -34,7 +34,7 @@
 
 static const bool EnableProfiling = false;
 
-//Forward declaration 
+//Forward declaration
 class Particle2D;
 
 typedef graphlab::distributed_graph<Particle2D, graphlab::empty> graph_type;
@@ -206,7 +206,16 @@ public:
     const PointCloudParams* pointCloudParams;
   };
 
-  
+  struct Update {
+    Update();
+    Update(const MotionModelParams& _motionParams, const std::vector<vector2f>& _pointCloud, const std::vector<vector2f>& _pointNormals, const PointCloudParams& _pointCloudParams);
+
+    const MotionModelParams* motionParams;
+    const std::vector<vector2f>* pointCloud;
+    const std::vector<vector2f>* pointNormals;
+    const PointCloudParams* pointCloudParams;
+  };
+
 protected:
   //Distributed graph
   graph_type* graph;
@@ -219,17 +228,16 @@ protected:
   float currentAngleStdDev;
   vector<Particle2D> particlesRefined;
   int numParticles;
-  vector<float> samplingDensity;
   vector2f lastDistanceMoved;
   float lastAngleTurned;
-  
+
   string mapsFolder;
   vector<VectorMap> maps;
-  
+
   //These are class-wide only so that they can be accessed for debugging purposes
   vector<Vector2f> gradients;
   vector<Vector2f> points;
-  
+
   //Statistics of performance
   int numUnrefinedParticlesSampled;
   int numRefinedParticlesSampled;
@@ -258,7 +266,7 @@ public:
   /// Update distribution based on LIDAR observations
   void updateLidar(const VectorLocalization2D::LidarParams& lidarParams, const VectorLocalization2D::MotionModelParams& motionParams);
   /// Update distribution based on Point Cloud observations
-  void updatePointCloud(vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const VectorLocalization2D::MotionModelParams& motionParams, const VectorLocalization2D::PointCloudParams& pointCloudParams);
+  void updatePointCloud(const vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const VectorLocalization2D::MotionModelParams& motionParams, const VectorLocalization2D::PointCloudParams& pointCloudParams);
   /// Resample distribution
   void resample(Resample type = LowVarianceResampling);
   
@@ -278,9 +286,9 @@ public:
   /// Observation likelihood based on LIDAR obhservation
   float observationWeightLidar(vector2f loc, float angle, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
   /// Observation likelihood based on point cloud obhservation
-  float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams);
+  float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams) const;
   /// Probability of specified pose corresponding to motion model
-  float motionModelWeight(vector2f loc, float angle, const VectorLocalization2D::MotionModelParams& motionParams);
+  float motionModelWeight(vector2f loc, float angle, const VectorLocalization2D::MotionModelParams& motionParams) const;
   /// Set pose with specified uncertainty
   void setLocation(vector2f loc, float angle, const char* map, float locationUncertainty, float angleUncertainty);
   /// Set pose and map with specified uncertainty
@@ -311,6 +319,8 @@ public:
   void reducePointCloud(const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, vector< vector2f >& reducedPointCloud, vector< vector2f >& reducedPointNormals);
   /// Returns current particles
   void getParticles(std::vector<Particle2D> &_particles);
+  /// Return the number of particles
+  int getNumParticles() const { return numParticles; }
 };
 
 /// Initialize particle using location and uncertainties
@@ -321,6 +331,12 @@ void predictParticle(graph_type::vertex_type& v);
 
 /// Refine particle using point cloud observation
 void refinePointCloudParticle(graph_type::vertex_type& v);
+
+/// Compute particle sampling densities
+void samplingDensityPointCloudParticle(graph_type::vertex_type& v);
+
+/// Compute particle weights
+void updatePointCloudParticle(graph_type::vertex_type& v);
 
 /// MapReduce to compute the pose applying using maximum likelihood over the particle set
 struct PoseReducer : public graphlab::IS_POD_TYPE {
@@ -334,6 +350,14 @@ struct PoseReducer : public graphlab::IS_POD_TYPE {
   PoseReducer& operator+=(const PoseReducer& other);
 }; // struct PoseReducer
 
+/// MapReduce to compute the total sampling density that will be used for weight normalization
+struct SamplingDensityReducer : public graphlab::IS_POD_TYPE {
+  float samplingDensity;
+
+  static SamplingDensityReducer computeTotalDensity(const graph_type::vertex_type& v);
+
+  SamplingDensityReducer& operator+=(const SamplingDensityReducer& other);
+};
 
 #endif //VECTORPARTICLEFILTER_H
 

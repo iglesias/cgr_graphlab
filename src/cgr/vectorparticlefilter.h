@@ -226,7 +226,6 @@ protected:
   float currentAngle;
   vector2f currentLocStdDev;
   float currentAngleStdDev;
-  vector<Particle2D> particlesRefined;
   int numParticles;
   vector2f lastDistanceMoved;
   float lastAngleTurned;

@@ -23,12 +23,29 @@
 
 static const bool UseAnalyticRender = true;
 
-//Pointer to the motion currently processed
-const VectorLocalization2D::Motion* MOTION = NULL;
+std::vector<line2f> debugLines;
+
 //Pointer to the parameters required to initialize particles
 const VectorLocalization2D::ParticleInitializer* PARTICLE_INITIALIZER = NULL;
+//Pointer to the motion currently processed
+const VectorLocalization2D::Motion* MOTION = NULL;
+//Pointer to the current refinement parameters
+const VectorLocalization2D::Refinement* REFINEMENT = NULL;
+
 //Set of particles set during graph transformations
 std::vector<Particle2D> particles;
+
+//Per-particle statistics of performance
+std::vector<VectorLocalization2D::EvalValues> PARTICLE_POINT_CLOUD_EVAL;
+
+//Per-particle debugging variables for the GUI
+std::vector< std::vector<Vector2f> > GRADIENTS2;
+std::vector< std::vector<Vector2f> > POINTS2;
+std::vector<vector2f> locCorrectionP0;
+std::vector<vector2f> locCorrectionP1;
+
+//This guy is declared and created in localization_main
+extern VectorLocalization2D* localization;
 
 inline float eigenCross(const Vector2f &v1, const Vector2f &v2)
 {
@@ -54,10 +71,6 @@ VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph
   loadAtlas();
   numParticles = _numParticles;
   particles.resize(_numParticles);
-  stage0Weights.resize(_numParticles);
-  stageRWeights.resize(_numParticles);
-  locCorrectionP0.zero();
-  locCorrectionP1.zero();
 
   //create distributed graph
   for (int id = 0; id < numParticles; ++id)
@@ -173,11 +186,17 @@ void VectorLocalization2D::initialize(const char* mapName, vector2f loc, float a
   laserEval.stage0Weights = 0;
   laserEval.stageRWeights = 0;
   
+  PARTICLE_POINT_CLOUD_EVAL.resize(numParticles);
   pointCloudEval.numCorrespondences = 0;
   pointCloudEval.numObservedPoints = 0;
   pointCloudEval.runTime = 0;
   pointCloudEval.stage0Weights = 0;
   pointCloudEval.stageRWeights = 0;
+
+  GRADIENTS2.resize(numParticles);
+  POINTS2.resize(numParticles);
+  locCorrectionP0.resize(numParticles);
+  locCorrectionP1.resize(numParticles);
   
   if(debug) printf("\nDone.\n");
 }
@@ -220,6 +239,7 @@ float VectorLocalization2D::observationWeightPointCloud(vector2f loc, float angl
   float curAngle;
   
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
 
   float a0 = angle-0.5*pointCloudParams.fieldOfView;
   float a1 = angle+0.5*pointCloudParams.fieldOfView;
@@ -284,6 +304,8 @@ float VectorLocalization2D::observationWeightLidar(vector2f loc, float angle, co
   
   vector2f laserLoc = loc + vector2f(lidarParams.laserToBaseTrans.x(),lidarParams.laserToBaseTrans.y()).rotate(angle);
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
+
   if(UseAnalyticRender){
     lineCorrespondences = currentMap->getRayToLineCorrespondences(laserLoc, angle, lidarParams.angleResolution, numRays, 0.0, maxRange, true, &lines);
   }else{
@@ -339,91 +361,6 @@ float VectorLocalization2D::observationWeightLidar(vector2f loc, float angle, co
   //exit(-1);
   //return numCorrespondences;
   return exp(logTotalWeight);
-}
-
-void VectorLocalization2D::computeParticleWeights(vector2f deltaLoc, float deltaAngle, vector2f minLocStdDev, float minAngleStdDev, const MotionModelParams &motionParams)
-{
-  static const bool debug = false;
-  
-  int N = particles.size();
-  vector<vector2f> locMean(2*N);
-  vector<vector2f> locStdDev(2*N);
-  vector<float> angleMean(2*N);
-  vector<float> angleStdDev(2*N);
-  
-  currentLocStdDev.x = max(minLocStdDev.x,currentLocStdDev.x);
-  currentLocStdDev.y = max(minLocStdDev.y,currentLocStdDev.y);
-  currentAngleStdDev = max(minAngleStdDev,currentAngleStdDev);
-  
-  // Compute kernel supports for motion model weights
-  float deltaTranslation = deltaLoc.length();
-  
-  for(int i=0; i<N; i++){
-    angleMean[i] = particles[i].angle;
-    angleStdDev[i] = 1.0/sq( max( float(fabs(deltaAngle))*motionParams.Alpha1 + deltaTranslation*motionParams.Alpha2 , currentAngleStdDev) );
-    locMean[i] = particles[i].loc;
-    locStdDev[i].x = 1.0/sq(max( (deltaLoc.rotate(particles[i].angle).x)*motionParams.Alpha3, currentLocStdDev.x));
-    locStdDev[i].y = 1.0/sq(max( (deltaLoc.rotate(particles[i].angle).y)*motionParams.Alpha3, currentLocStdDev.y));
-  }
-  // Compute motion model weights from kernel supports
-  for(int i=0; i<N; i++){
-    Particle2D &p1 = particles[i];
-    Particle2D &p2 = particlesRefined[i];
-    p1.weight = 0.0;
-    p2.weight = 0.0;
-    for(int j=0; j<N; j++){
-      p1.weight += exp(-sq(p1.loc.x - locMean[j].x)*locStdDev[j].x -sq(p1.loc.y - locMean[j].y)*locStdDev[j].y  -sq(angle_diff(p1.angle , angleMean[j]))*angleStdDev[j] );
-      p2.weight += exp(-sq(p2.loc.x - locMean[j].x)*locStdDev[j].x -sq(p2.loc.y - locMean[j].y)*locStdDev[j].y  -sq(angle_diff(p2.angle , angleMean[j]))*angleStdDev[j] );
-    }
-  }
-  
-  if(debug){
-    printf("Motion model weights:\n");
-    for(int i=0; i<N; i++){
-      printf("%2d unrefined:%20.16f, %20.16f refined:%20.16f, %20.16f\n",i, particles[i].weight,stage0Weights[i], particlesRefined[i].weight,stageRWeights[i]);
-    }
-  }
-  
-  // Apply observation function weights
-  for(int i=0; i<N; i++){
-    particles[i].weight *= stage0Weights[i];
-    particlesRefined[i].weight *= stageRWeights[i];
-  }
-  
-  // Compute kernel supports for sampling density function
-  for(int i=0; i<N; i++){
-    angleMean[i] = particles[i].angle;
-    angleStdDev[i] = 1.0/sq( max( float(fabs(deltaAngle))*motionParams.Alpha1 + deltaTranslation*motionParams.Alpha2 , currentAngleStdDev) );
-    locMean[i] = particles[i].loc;
-    locStdDev[i].x = 1.0/sq(max( (deltaLoc.rotate(particles[i].angle).x)*motionParams.Alpha3, currentLocStdDev.x));
-    locStdDev[i].y = 1.0/sq(max( (deltaLoc.rotate(particles[i].angle).y)*motionParams.Alpha3, currentLocStdDev.y));
-    
-    angleMean[N+i] = particlesRefined[i].angle;
-    angleStdDev[N+i] = 1.0/sq( max( float(fabs(deltaAngle))*motionParams.Alpha1 + deltaTranslation*motionParams.Alpha2 , currentAngleStdDev) );
-    locMean[N+i] = particlesRefined[i].loc;
-    locStdDev[N+i].x = 1.0/sq(max( (deltaLoc.rotate(particlesRefined[i].angle).x)*motionParams.Alpha3, currentLocStdDev.x));
-    locStdDev[N+i].y = 1.0/sq(max( (deltaLoc.rotate(particlesRefined[i].angle).y)*motionParams.Alpha3, currentLocStdDev.y));
-  }
-  // Apply sampling density function weights from kernel supports
-  for(int i=0; i<N; i++){
-    Particle2D &p1 = particles[i];
-    Particle2D &p2 = particlesRefined[i];
-    float w1 = 0.0;
-    float w2 = 0.0;
-    for(int j=0; j<2*N; j++){
-      w1 += exp(-sq(p1.loc.x - locMean[j].x)*locStdDev[j].x -sq(p1.loc.y - locMean[j].y)*locStdDev[j].y  -sq(angle_diff(p1.angle , angleMean[j]))*angleStdDev[j] );
-      w2 += exp(-sq(p2.loc.x - locMean[j].x)*locStdDev[j].x -sq(p2.loc.y - locMean[j].y)*locStdDev[j].y  -sq(angle_diff(p2.angle , angleMean[j]))*angleStdDev[j] );
-    }
-    p1.weight = p1.weight/w1;
-    p2.weight = p2.weight/w2;
-  }
-  
-  if(debug){
-    printf("Final weights:\n");
-    for(int i=0; i<N; i++){
-      printf("%2d unrefined:%20.16f refined:%20.16f\n",i, particles[i].weight, particlesRefined[i].weight);
-    }
-  }
 }
 
 void VectorLocalization2D::updateLidar(const LidarParams &lidarParams, const MotionModelParams & motionParams)
@@ -560,7 +497,7 @@ void predictParticle(graph_type::vertex_type& v)
     printf("after: %7.2f,%7.2f %6.2f\u00b0\n", v.data().loc.x, v.data().loc.y, DEG(v.data().angle));
 }
 
-inline Vector2f VectorLocalization2D::attractorFunction(line2f l, Vector2f p, float attractorRange, float margin)
+inline Vector2f VectorLocalization2D::attractorFunction(line2f l, Vector2f p, float attractorRange, float margin) const
 {
   static const bool debug = false;
   
@@ -590,7 +527,7 @@ inline Vector2f VectorLocalization2D::attractorFunction(line2f l, Vector2f p, fl
   return attraction;
 }
 
-inline Vector2f VectorLocalization2D::observationFunction(line2f l, Vector2f p)
+inline Vector2f VectorLocalization2D::observationFunction(line2f l, Vector2f p) const
 {
   static const bool debug = false;
   Vector2f attraction(0.0,0.0), dir(V2COMP(l.Dir())), p0(V2COMP(l.P0())), p1(V2COMP(l.P1()));
@@ -605,7 +542,7 @@ inline Vector2f VectorLocalization2D::observationFunction(line2f l, Vector2f p)
   return attraction;
 }
 
-void VectorLocalization2D::getPointCloudGradient(vector2f loc, float angle, vector2f& locGrad, float& angleGrad, const std::vector< vector2f >& pointCloud, const std::vector< vector2f >& pointNormals, float& logWeight, const VectorLocalization2D::PointCloudParams& pointCloudParams, const vector<int> & lineCorrespondences, const vector<line2f> &lines)
+void VectorLocalization2D::getPointCloudGradient(int particleIdx, vector2f loc, float angle, vector2f& locGrad, float& angleGrad, const std::vector< vector2f >& pointCloud, const std::vector< vector2f >& pointNormals, float& logWeight, const VectorLocalization2D::PointCloudParams& pointCloudParams, const vector<int> & lineCorrespondences, const vector<line2f> &lines) const
 {
   //static const bool UseAnalyticRender = false;
   static const bool debug = false;
@@ -640,11 +577,15 @@ void VectorLocalization2D::getPointCloudGradient(vector2f loc, float angle, vect
   logWeight = 0.0;
   
   int numObservedPoints = int(pointCloud.size());
-  pointCloudEval.numObservedPoints = numObservedPoints;
+  assert(PARTICLE_POINT_CLOUD_EVAL.size() > particleIdx);
+  PARTICLE_POINT_CLOUD_EVAL[particleIdx].numObservedPoints = numObservedPoints;
   
   //Construct gradients per point in point cloud
-  gradients2.resize(numObservedPoints);
-  points2.resize(numObservedPoints);
+  assert(GRADIENTS2.size() > particleIdx);
+  assert(POINTS2.size() > particleIdx);
+
+  GRADIENTS2[particleIdx].resize(numObservedPoints);
+  POINTS2[particleIdx].resize(numObservedPoints);
   int numPointsInt = 0;
   
   Vector2f curPoint, locE(V2COMP(loc)), attraction, lineNorm, rotatedNormal;
@@ -666,18 +607,18 @@ void VectorLocalization2D::getPointCloudGradient(vector2f loc, float angle, vect
         //Add the point and attraction (only if non-zero)
         //logWeight += -min(attraction.squaredNorm()/pointCloudParams.stdDev, -pointCloudParams.logShortHitProb)*pointCloudParams.corelationFactor;
         
-        gradients2[numPointsInt] = attraction;
-        points2[numPointsInt] = curPoint;
+        GRADIENTS2[particleIdx][numPointsInt] = attraction;
+        POINTS2[particleIdx][numPointsInt] = curPoint;
         numPointsInt++;
       }
     }else{
       noCorrespondences++;
     }
   }
-  points2.resize(numPointsInt);
-  gradients2.resize(numPointsInt);
+  GRADIENTS2[particleIdx].resize(numPointsInt);
+  POINTS2[particleIdx].resize(numPointsInt);
   numPoints = float(numPointsInt);
-  pointCloudEval.numCorrespondences = int(points2.size());
+  PARTICLE_POINT_CLOUD_EVAL[particleIdx].numCorrespondences = int(POINTS2[particleIdx].size());
   
   if(debug) printf("No correspondences: %d/%d \n",noCorrespondences,int(pointCloud.size()));
   
@@ -691,22 +632,22 @@ void VectorLocalization2D::getPointCloudGradient(vector2f loc, float angle, vect
   Vector2f locGradE(0,0);
   Vector2f heading(0,0), curHeading, r;
   float headingAngle;
-  pointCloudEval.meanSqError = 0.0;
+  PARTICLE_POINT_CLOUD_EVAL[particleIdx].meanSqError = 0.0;
   for(int i = 0; i<numPointsInt; i++){
-    r = points2[i] - locE;
-    pointCloudEval.meanSqError += gradients2[i].squaredNorm();
+    r = POINTS2[particleIdx][i] - locE;
+    PARTICLE_POINT_CLOUD_EVAL[particleIdx].meanSqError += GRADIENTS2[particleIdx][i].squaredNorm();
     if(r.squaredNorm()<sq(0.001))
       continue;
     
-    locGradE += gradients2[i];
-    headingAngle = eigenCross(r,gradients2[i]);
+    locGradE += GRADIENTS2[particleIdx][i];
+    headingAngle = eigenCross(r, GRADIENTS2[particleIdx][i]);
     curHeading = Vector2f(cos(headingAngle),sin(headingAngle));
     heading += curHeading;
   }
   locGradE = locGradE/numPoints;
   locGrad.set(locGradE.x(),locGradE.y());
   heading = heading/numPoints;
-  pointCloudEval.meanSqError = pointCloudEval.meanSqError/numPoints;
+  PARTICLE_POINT_CLOUD_EVAL[particleIdx].meanSqError = PARTICLE_POINT_CLOUD_EVAL[particleIdx].meanSqError/numPoints;
   
   angleGrad = bound(atan2(heading.y(),heading.x()),-pointCloudParams.maxAngleGradient,pointCloudParams.maxAngleGradient);
   
@@ -852,6 +793,8 @@ void VectorLocalization2D::refineLocationLidar(vector2f& loc, float& angle, floa
   Vector2f laserLocE = Vector2f(V2COMP(loc)) + robotAngle*(lidarParams.laserToBaseTrans);
   vector2f laserLoc(laserLocE.x(), laserLocE.y());
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
+
   if(UseAnalyticRender){
     lineCorrespondences = currentMap->getRayToLineCorrespondences(laserLoc, angle, lidarParams.angleResolution, lidarParams.numRays, lidarParams.minRange, lidarParams.maxRange, true, &lines);
   }else{
@@ -870,7 +813,7 @@ void VectorLocalization2D::refineLocationLidar(vector2f& loc, float& angle, floa
   finalWeight = exp(weight);
 }
 
-void VectorLocalization2D::refineLocationPointCloud(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const std::vector< vector2f >& pointCloud, const std::vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams)
+void VectorLocalization2D::refineLocationPointCloud(int particleIdx, vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const std::vector< vector2f >& pointCloud, const std::vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams) const
 {
   static const bool debug = false;
   //FunctionTimer ft(__PRETTY_FUNCTION__);
@@ -880,10 +823,11 @@ void VectorLocalization2D::refineLocationPointCloud(vector2f& loc, float& angle,
   float angleGrad = 0.0;
   bool beingRefined = true;
   
-  
   float a0 = angle-0.5*pointCloudParams.fieldOfView;
   float a1 = angle+0.5*pointCloudParams.fieldOfView;
   vector<line2f> lines;
+  vector<int> lineCorrespondences;
+
   if(UseAnalyticRender){
     lineCorrespondences = currentMap->getRayToLineCorrespondences(loc, angle, a0, a1, pointCloud, pointCloudParams.minRange, pointCloudParams.maxRange, true, &lines);
   }else{
@@ -894,15 +838,17 @@ void VectorLocalization2D::refineLocationPointCloud(vector2f& loc, float& angle,
   vector2f locPrev = loc;
   float anglePrev = angle;
   float weight;
-  locCorrectionP0 = loc;
+  assert (locCorrectionP0.size() > particleIdx);
+  locCorrectionP0[particleIdx] = loc;
   for(int i=0; beingRefined && i<pointCloudParams.numSteps; i++){
-    getPointCloudGradient(loc,angle,locGrad,angleGrad,pointCloud,pointNormals,weight, pointCloudParams, lineCorrespondences, lines);
+    getPointCloudGradient(particleIdx, loc, angle, locGrad, angleGrad, pointCloud, pointNormals, weight, pointCloudParams, lineCorrespondences, lines);
     if(i==0) initialWeight = exp(weight);
     loc -= pointCloudParams.etaLoc*locGrad;
     angle -= pointCloudParams.etaAngle*angleGrad;
     beingRefined = fabs(angleGrad)>pointCloudParams.minRefineFraction*pointCloudParams.maxAngleGradient && locGrad.sqlength()>sq(pointCloudParams.minRefineFraction*pointCloudParams.maxLocGradient);
   }
-  locCorrectionP1 = loc;
+  assert (locCorrectionP1.size() > particleIdx);
+  locCorrectionP1[particleIdx] = loc;
   finalWeight = exp(weight);
   if(debug) printf("gradient: %7.3f,%7.3f %6.1f\u00b0\n",V2COMP(loc-locPrev),DEG(angle-anglePrev));
 }
@@ -924,9 +870,10 @@ void VectorLocalization2D::refineLidar(const LidarParams &lidarParams)
   particlesRefined = particles;
   if(lidarParams.numSteps>0){
     for(int i=0; i<numParticles; i++){
-      refineLocationLidar(particlesRefined[i].loc, particlesRefined[i].angle, stage0Weights[i], stageRWeights[i], lidarParams, laserPoints);
-      laserEval.stage0Weights += stage0Weights[i];
-      laserEval.stageRWeights += stageRWeights[i];
+      float initialWeight, finalWeight;
+      refineLocationLidar(particlesRefined[i].loc, particlesRefined[i].angle, initialWeight, finalWeight, lidarParams, laserPoints);
+      laserEval.stage0Weights += initialWeight;
+      laserEval.stageRWeights += finalWeight;
     }
   }
   refineTime = GetTimeSec() - tStart;
@@ -993,22 +940,25 @@ void VectorLocalization2D::refinePointCloud(const vector<vector2f> &pointCloud, 
   pointCloudEval.stageRWeights = 0.0;
   pointCloudEval.lastRunTime = GetTimeSec();
   
-  /*
-  vector< vector2f > reducedPointCloud, reducedPointNormals;
-  reducePointCloud(pointCloud, pointNormals, reducedPointCloud, reducedPointNormals);
-  */
-  
-  particlesRefined = particles;
+//   particlesRefined = particles;
   if(pointCloudParams.numSteps>0){
-    for(int i=0; i<numParticles; i++){
-      //refineLocationPointCloud(particlesRefined[i].loc, particlesRefined[i].angle, stage0Weights[i], stageRWeights[i],reducedPointCloud, reducedPointNormals, pointCloudParams);
-      refineLocationPointCloud(particlesRefined[i].loc, particlesRefined[i].angle, stage0Weights[i], stageRWeights[i],pointCloud, pointNormals, pointCloudParams);
-      pointCloudEval.stage0Weights += stage0Weights[i];
-      pointCloudEval.stageRWeights += stageRWeights[i];
-    }
+    Refinement refinement(pointCloud, pointNormals, pointCloudParams);
+    REFINEMENT = &refinement;
+    graph->transform_vertices(refinePointCloudParticle);
+    REFINEMENT = NULL;
   }
+
   refineTime = GetTimeSec() - tStart;
   pointCloudEval.runTime = refineTime;
+}
+
+void refinePointCloudParticle(graph_type::vertex_type& v)
+{
+  localization->refineLocationPointCloud(v.id(), v.data().loc, v.data().angle,
+      PARTICLE_POINT_CLOUD_EVAL[v.id()].stage0Weights, PARTICLE_POINT_CLOUD_EVAL[v.id()].stageRWeights,
+      *REFINEMENT->pointCloud, *REFINEMENT->pointNormals, *REFINEMENT->pointCloudParams);
+
+  particles[v.id()] = v.data();
 }
 
 void VectorLocalization2D::computeLocation(vector2f& loc, float& angle)
@@ -1205,12 +1155,17 @@ void VectorLocalization2D::drawDisplay(vector<float> &lines_p1x, vector<float> &
   debugLines.clear();
   
   if(drawCorrections){
-    vector2f p2 = locCorrectionP1 + 20.0*(locCorrectionP1 - locCorrectionP0);
-    lines_p1x.push_back(scale*locCorrectionP0.x);
-    lines_p1y.push_back(scale*locCorrectionP0.y);
-    lines_p2x.push_back(scale*p2.x);
-    lines_p2y.push_back(scale*p2.y);
-    lines_color.push_back(0x1BE042);
+    assert(locCorrectionP0.size() == numParticles);
+    assert(locCorrectionP1.size() == numParticles);
+
+    for(int i=0; i<locCorrectionP0.size(); i++){
+      vector2f p2 = locCorrectionP1[i] + 20.0*(locCorrectionP1[i] - locCorrectionP0[i]);
+      lines_p1x.push_back(scale*locCorrectionP0[i].x);
+      lines_p1y.push_back(scale*locCorrectionP0[i].y);
+      lines_p2x.push_back(scale*p2.x);
+      lines_p2y.push_back(scale*p2.y);
+      lines_color.push_back(0x1BE042);
+    }
   }
   
   if(drawParticles){
@@ -1311,17 +1266,26 @@ void VectorLocalization2D::drawDisplay(vector<float> &lines_p1x, vector<float> &
   }
   
   if(drawKinectPoints){
+    assert(POINTS2.size() == GRADIENTS2.size());
+    assert(POINTS2.size() == numParticles);
+
     // Draw all point cloud points considered for gradient descent, as well as their gradients
-    for(int i=0; i<points2.size(); i++){
-      points_x.push_back(scale*points2[i].x());
-      points_y.push_back(scale*points2[i].y());
-      points_color.push_back(CloudPointColor);
-      Vector2f p = points2[i] - GradientsScale*gradients2[i];
-      lines_p1x.push_back(scale*points2[i].x());
-      lines_p1y.push_back(scale*points2[i].y());
-      lines_p2x.push_back(scale*p.x());
-      lines_p2y.push_back(scale*p.y());
-      lines_color.push_back(CloudGradientColor);
+    for (int particleIdx=0; particleIdx<POINTS2.size(); particleIdx++){
+      const std::vector<Vector2f>& points2 = POINTS2[particleIdx];
+      const std::vector<Vector2f>& gradients2 = GRADIENTS2[particleIdx];
+      assert(points2.size() == gradients2.size());
+
+      for(int i=0; i<points2.size(); i++){
+        points_x.push_back(scale*points2[i].x());
+        points_y.push_back(scale*points2[i].y());
+        points_color.push_back(CloudPointColor);
+        Vector2f p = points2[i] - GradientsScale*gradients2[i];
+        lines_p1x.push_back(scale*points2[i].x());
+        lines_p1y.push_back(scale*points2[i].y());
+        lines_p2x.push_back(scale*p.x());
+        lines_p2y.push_back(scale*p.y());
+        lines_color.push_back(CloudGradientColor);
+      }
     }
   }
   
@@ -1373,6 +1337,21 @@ VectorLocalization2D::Motion::Motion(float _dx, float _dy, float _dtheta, const 
   dy = _dy;
   dtheta = _dtheta;
   motionParams = &_motionParams;
+}
+
+VectorLocalization2D::Refinement::Refinement()
+{
+  pointCloud = NULL;
+  pointNormals = NULL;
+  pointCloudParams = NULL;
+}
+
+VectorLocalization2D::Refinement::Refinement(const std::vector<vector2f>& _pointCloud,
+    const std::vector<vector2f>& _pointNormals, const PointCloudParams& _pointCloudParams)
+{
+  pointCloud = &_pointCloud;
+  pointNormals = &_pointNormals;
+  pointCloudParams = &_pointCloudParams;
 }
 
 PoseReducer PoseReducer::getPose(const graph_type::vertex_type& v) {

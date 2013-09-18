@@ -95,26 +95,6 @@ public:
     float kernelSize;
   } MotionModelParams;
 
-  struct Motion {
-    Motion();
-    Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams);
-
-    double dx;
-    double dy;
-    double dtheta;
-    const MotionModelParams* motionParams;
-  };
-
-  struct ParticleInitializer {
-    ParticleInitializer();
-    ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty);
-
-    vector2f loc;
-    float angle;
-    float locationUncertainty;
-    float angleUncertainty;
-  };
-
   class LidarParams{
     public:
     float* laserScan;
@@ -196,6 +176,36 @@ public:
     LowVarianceResampling,
     SensorResettingResampling,
   };
+
+  struct ParticleInitializer {
+    ParticleInitializer();
+    ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty);
+
+    vector2f loc;
+    float angle;
+    float locationUncertainty;
+    float angleUncertainty;
+  };
+
+  struct Motion {
+    Motion();
+    Motion(float _dx, float _dy, float _dtheta, const MotionModelParams &_motionParams);
+
+    double dx;
+    double dy;
+    double dtheta;
+    const MotionModelParams* motionParams;
+  };
+
+  struct Refinement {
+    Refinement();
+    Refinement(const std::vector<vector2f>& _pointCloud, const std::vector<vector2f>& _pointNormals, const PointCloudParams& _pointCloudParams);
+
+    const std::vector<vector2f>* pointCloud;
+    const std::vector<vector2f>* pointNormals;
+    const PointCloudParams* pointCloudParams;
+  };
+
   
 protected:
   //Distributed graph
@@ -217,15 +227,8 @@ protected:
   vector<VectorMap> maps;
   
   //These are class-wide only so that they can be accessed for debugging purposes
-  vector<float> stage0Weights;
-  vector<float> stageRWeights;
   vector<Vector2f> gradients;
   vector<Vector2f> points;
-  vector<Vector2f> gradients2;
-  vector<Vector2f> points2;
-  vector<line2f> debugLines;
-  vector<int> lineCorrespondences;
-  vector2f locCorrectionP0, locCorrectionP1;
   
   //Statistics of performance
   int numUnrefinedParticlesSampled;
@@ -262,16 +265,14 @@ public:
   /// Refine a single location hypothesis based on a LIDAR observation
   void refineLocationLidar(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
   /// Refine a single location hypothesis based on a Point Cloud observation
-  void refineLocationPointCloud(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams);
-  
-  void computeParticleWeights(vector2f deltaLoc, float deltaAngle, vector2f minLocStdDev, float minAngleStdDev, const VectorLocalization2D::MotionModelParams& motionParams);
+  void refineLocationPointCloud(int particleidx, vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams) const;
   
   /// Attractor function used for refining location hypotheses 
-  inline Vector2f attractorFunction(line2f l, Vector2f p, float attractorRange, float margin = 0);
+  inline Vector2f attractorFunction(line2f l, Vector2f p, float attractorRange, float margin = 0) const;
   /// Observation function for a single ray
-  inline Vector2f observationFunction(line2f l, Vector2f p);
+  inline Vector2f observationFunction(line2f l, Vector2f p) const;
   /// Gradient based on pointCloud observation
-  void getPointCloudGradient(vector2f loc, float angle, vector2f& locGrad, float& angleGrad, const std::vector< vector2f >& pointCloud, const std::vector< vector2f >& pointNormals, float& logWeight, const VectorLocalization2D::PointCloudParams& pointCloudParams, const std::vector< int >& lineCorrespondences, const std::vector< line2f >& lines);
+  void getPointCloudGradient(int particleIdx, vector2f loc, float angle, vector2f& locGrad, float& angleGrad, const std::vector< vector2f >& pointCloud, const std::vector< vector2f >& pointNormals, float& logWeight, const VectorLocalization2D::PointCloudParams& pointCloudParams, const std::vector< int >& lineCorrespondences, const std::vector< line2f >& lines) const;
   /// Gradient based on LIDAR observation
   void getLidarGradient(vector2f loc, float angle, vector2f& locGrad, float& angleGrad, float& logWeight, VectorLocalization2D::LidarParams lidarParams, const vector< Vector2f >& laserPoints, const vector<int> & lineCorrespondences, const vector<line2f> &lines);
   /// Observation likelihood based on LIDAR obhservation
@@ -312,11 +313,14 @@ public:
   void getParticles(std::vector<Particle2D> &_particles);
 };
 
+/// Initialize particle using location and uncertainties
+void initializeParticle(graph_type::vertex_type& v);
+
 /// Predict particle motion by sampling from the motion model
 void predictParticle(graph_type::vertex_type& v);
 
-/// Initialize particle using location and uncertainties
-void initializeParticle(graph_type::vertex_type& v);
+/// Refine particle using point cloud observation
+void refinePointCloudParticle(graph_type::vertex_type& v);
 
 /// MapReduce to compute the pose applying using maximum likelihood over the particle set
 struct PoseReducer : public graphlab::IS_POD_TYPE {

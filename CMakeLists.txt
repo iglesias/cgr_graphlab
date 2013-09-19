@@ -9,7 +9,7 @@ include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 #  Release        : w/o debug symbols, w/ optimization
 #  RelWithDebInfo : w/ debug symbols, w/ optimization
 #  MinSizeRel     : w/o debug symbols, w/ optimization, stripped binaries
-#set(ROS_BUILD_TYPE RelWithDebInfo)
+set(ROS_BUILD_TYPE Release)
 
 message(STATUS "Compiling CGR sources...")
 message(STATUS "Compilers found: ${CMAKE_CXX_COMPILER_LIST}" )
@@ -17,7 +17,7 @@ message(STATUS "Using compiler: ${CMAKE_CXX_COMPILER}" )
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "Arch: ${CMAKE_SYSTEM_PROCESSOR}")
 
-set(CMAKE_CXX_FLAGS "-mmmx -msse -msse2 -msse4.1 -save-temps -D HAS_MPI")
+set(CMAKE_CXX_FLAGS "-mmmx -msse -msse2 -msse4.1 -save-temps -DHAS_MPI -fopenmp")
 
 rosbuild_init()
 #uncomment if you have defined messages

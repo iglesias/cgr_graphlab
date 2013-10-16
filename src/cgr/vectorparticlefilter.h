@@ -55,7 +55,7 @@ public:
   bool operator<(const Particle2D &other) {return weight<other.weight;}
   bool operator>(const Particle2D &other) {return weight>other.weight;}
 
-  Particle2D &operator=(const Particle2D &other) {
+  Particle2D& operator=(const Particle2D &other) {
     angle = other.angle;
     weight = other.weight;
     loc.x = other.loc.x;
@@ -371,5 +371,57 @@ struct MaxWeightReducer : public graphlab::IS_POD_TYPE {
   MaxWeightReducer& operator+=(const MaxWeightReducer& other);
 }; // struct MaxWeightReducer
 
-#endif //VECTORPARTICLEFILTER_H
+struct Resampler {
+  public:
+    std::vector<Particle2D> in_particles;
 
+  public:
+    Resampler();
+
+    explicit Resampler(const Particle2D& particle);
+
+    Resampler& operator+=(const Resampler& other);
+
+    void save(graphlab::oarchive& oarc) const;
+
+    void load(graphlab::iarchive& iarc);
+};
+
+typedef Resampler gather_type;
+
+class ResamplerProgram : public graphlab::ivertex_program<graph_type, gather_type>, public graphlab::IS_POD_TYPE {
+  public:
+    edge_dir_type gather_edges(icontext_type& context, const vertex_type& vertex) const {
+      return graphlab::IN_EDGES;
+    }
+
+    gather_type gather(icontext_type& context, const vertex_type& vertex, edge_type& edge) const {
+      return Resampler(edge.source().data());
+    }
+
+    void apply(icontext_type& context, vertex_type& vertex, const gather_type& total) {
+      // compute the CDF of the particles that participate in this resampling
+      std::vector<float> weight_cdf(1+total.in_particles.size(), 0.0);
+      weight_cdf[0] = vertex.data().weight;
+      for (unsigned int i = 0; i < total.in_particles.size(); ++i)
+        weight_cdf[i+1] = weight_cdf[i] + total.in_particles[i].weight;
+
+      // resample
+      float beta = graphlab::random::uniform(0.0f, weight_cdf[weight_cdf.size()-1]);
+      int i = 0;
+      while (weight_cdf[i++] < beta);
+      if (i > 0) {
+        assert(i <= total.in_particles.size());
+        // i-1 because the the first weight in weight_cdf corresponds to the current vertex
+        vertex.data() = total.in_particles[i-1];
+      } else {
+        assert(i == 0);
+      }
+    }
+
+    edge_dir_type scatter_edges(icontext_type& context, const vertex_type& vertex) const {
+      return graphlab::NO_EDGES;
+    }
+};
+
+#endif //VECTORPARTICLEFILTER_H

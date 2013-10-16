@@ -1438,34 +1438,29 @@ PoseReducer& PoseReducer::operator+=(const PoseReducer& other) {
   return *this;
 }
 
-SamplingDensityReducer SamplingDensityReducer::getTotalDensity(const graph_type::vertex_type& v)
-{
+SamplingDensityReducer SamplingDensityReducer::getTotalDensity(const graph_type::vertex_type& v) {
   SamplingDensityReducer r;
   r.samplingDensity = SAMPLING_DENSITY[v.id()];
   return r;
 }
 
-SamplingDensityReducer& SamplingDensityReducer::operator+=(const SamplingDensityReducer& other)
-{
+SamplingDensityReducer& SamplingDensityReducer::operator+=(const SamplingDensityReducer& other) {
   samplingDensity += other.samplingDensity;
   return *this;
 }
 
-MaxWeightReducer MaxWeightReducer::getMaxWeight(const graph_type::vertex_type& v)
-{
+MaxWeightReducer MaxWeightReducer::getMaxWeight(const graph_type::vertex_type& v) {
   MaxWeightReducer r;
   r.weight = particles[v.id()].weight;
   return r;
 }
 
-MaxWeightReducer& MaxWeightReducer::operator+=(const MaxWeightReducer& other)
-{
+MaxWeightReducer& MaxWeightReducer::operator+=(const MaxWeightReducer& other) {
   weight = std::max(weight, other.weight);
   return *this;
 }
 
-void initializeParticle(graph_type::vertex_type& v)
-{
+void initializeParticle(graph_type::vertex_type& v) {
   v.data() = Particle2D(
       randn(PARTICLE_INITIALIZER->locationUncertainty, PARTICLE_INITIALIZER->loc.x),
       randn(PARTICLE_INITIALIZER->locationUncertainty, PARTICLE_INITIALIZER->loc.y),
@@ -1475,19 +1470,38 @@ void initializeParticle(graph_type::vertex_type& v)
   particles[v.id()] = v.data();
 }
 
-VectorLocalization2D::ParticleInitializer::ParticleInitializer()
-{
+VectorLocalization2D::ParticleInitializer::ParticleInitializer() {
   loc.zero();
   angle = 0.0;
   locationUncertainty = 0.0;
   angleUncertainty = 0.0;
 }
 
-VectorLocalization2D::ParticleInitializer::ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty)
-{
+VectorLocalization2D::ParticleInitializer::ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty) {
   loc.x = _loc.x;
   loc.y = _loc.y;
   angle = _angle;
   locationUncertainty = _locationUncertainty;
   angleUncertainty = _angleUncertainty;
+}
+
+Resampler::Resampler() { }
+
+Resampler::Resampler(const Particle2D& particle) {
+  in_particles.push_back(particle);
+}
+
+Resampler& Resampler::operator+=(const Resampler& other) {
+  for (unsigned int i = 0; i < other.in_particles.size(); i++)
+    in_particles.push_back(other.in_particles[i]);
+
+  return *this;
+}
+
+void Resampler::save(graphlab::oarchive& oarc) const {
+  oarc << in_particles;
+}
+
+void Resampler::load(graphlab::iarchive& iarc) {
+  iarc >> in_particles;
 }

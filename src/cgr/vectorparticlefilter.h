@@ -36,8 +36,10 @@ static const bool EnableProfiling = false;
 
 //Forward declaration
 class Particle2D;
+class ResamplerProgram;
 
 typedef graphlab::distributed_graph<Particle2D, graphlab::empty> graph_type;
+typedef graphlab::omni_engine<ResamplerProgram> engine_type;
 
 using namespace std;
 using namespace Eigen;
@@ -218,6 +220,8 @@ public:
 protected:
   //Distributed graph
   graph_type* graph;
+  //GraphLab engine used to execute GAS programs
+  engine_type* engine;
 
   //Current state
   VectorMap* currentMap;
@@ -245,10 +249,11 @@ protected:
   double updateTime;
   EvalValues pointCloudEval;
   EvalValues laserEval;
-    
+
 public:
   VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder);
-  
+  ~VectorLocalization2D();
+
   /// Sets Particle Filter LIDAR parameters
   void setParams(MotionModelParams _predictParams, LidarParams _lidarUpdateParams);
   /// Loads All the floor maps listed in atlas.txt
@@ -283,7 +288,7 @@ public:
   void getLidarGradient(vector2f loc, float angle, vector2f& locGrad, float& angleGrad, float& logWeight, VectorLocalization2D::LidarParams lidarParams, const vector< Vector2f >& laserPoints, const vector<int> & lineCorrespondences, const vector<line2f> &lines);
   /// Observation likelihood based on LIDAR obhservation
   float observationWeightLidar(vector2f loc, float angle, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
-  /// Observation likelihood based on point cloud obhservation
+  /// Observation likelihood based on point cloud observation
   float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams) const;
   /// Probability of specified pose corresponding to motion model
   float motionModelWeight(vector2f loc, float angle, const VectorLocalization2D::MotionModelParams& motionParams) const;
@@ -408,8 +413,8 @@ class ResamplerProgram : public graphlab::ivertex_program<graph_type, gather_typ
 
       // resample
       float beta = graphlab::random::uniform(0.0f, weight_cdf[weight_cdf.size()-1]);
-      int i = 0;
-      while (weight_cdf[i++] < beta);
+      unsigned int i = 0;
+      while (weight_cdf[i] < beta) i++;
       if (i > 0) {
         assert(i <= total.in_particles.size());
         // i-1 because the the first weight in weight_cdf corresponds to the current vertex
@@ -422,6 +427,8 @@ class ResamplerProgram : public graphlab::ivertex_program<graph_type, gather_typ
     edge_dir_type scatter_edges(icontext_type& context, const vertex_type& vertex) const {
       return graphlab::NO_EDGES;
     }
+
+    void scatter(icontext_type& context, const vertex_type& vertex, const edge_type& edge) const { }
 };
 
 #endif //VECTORPARTICLEFILTER_H

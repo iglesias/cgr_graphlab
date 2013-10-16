@@ -40,8 +40,6 @@ std::vector<Particle2D> particles;
 std::vector<float> SAMPLING_DENSITY;
 //Total sampling density used for normalization
 float TOTAL_DENSITY;
-// Maximum particle weight
-float MAX_WEIGHT;
 
 //Per-particle statistics of performance
 std::vector<VectorLocalization2D::EvalValues> PARTICLE_POINT_CLOUD_EVAL;
@@ -71,8 +69,7 @@ void VectorLocalization2D::LidarParams::initialize()
   }
 }
 
-VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder)
-{
+VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder) {
   assert(_numParticles > 0);
 
   mapsFolder = string(_mapsFolder);
@@ -82,13 +79,20 @@ VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph
   SAMPLING_DENSITY.resize(_numParticles);
 
   //create distributed graph
-  for (int id = 0; id < numParticles; ++id)
-    _graph.add_vertex(id, Particle2D());
+  for (int id = 0; id < numParticles-1; ++id) {
+    _graph.add_edge(id, id+1);
+    _graph.add_edge(id+1, id);
+  }
 
   //commit the distributed graph, denoting that it is no longer to be modified
   _graph.finalize();
 
   graph = &_graph;
+  engine = new engine_type(_graph.dc(), _graph, "sync");
+}
+
+VectorLocalization2D::~VectorLocalization2D() {
+  delete engine;
 }
 
 void VectorLocalization2D::loadAtlas()
@@ -1138,9 +1142,8 @@ void VectorLocalization2D::naiveResample()
 
 void VectorLocalization2D::distributedResample()
 {
-  graphlab::omni_engine<ResamplerProgram> engine(graph->dc(), *graph, "sync");
-  engine.signal_all();
-  engine.start();
+  engine->signal_all();
+  engine->start();
 }
 
 void VectorLocalization2D::drawDisplay(vector<float> &lines_p1x, vector<float> &lines_p1y, vector<float> &lines_p2x, vector<float> &lines_p2y, vector<uint32_t> &lines_color,

@@ -115,10 +115,7 @@ void VectorLocalization2D::loadAtlas()
 
 void VectorLocalization2D::setLocation(vector2f loc, float angle, const char* map, float locationUncertainty, float angleUncertainty)
 {
-  for(unsigned int i=0; i<particles.size(); i++){
-    particles[i].loc = vector2f(randn(locationUncertainty, loc.x), randn(locationUncertainty, loc.y));
-    particles[i].angle = randn(angleUncertainty, angle);
-  }
+  setLocation(loc, angle, locationUncertainty, angleUncertainty);
 
   bool found = false;
   int mapIndex=0;
@@ -139,10 +136,10 @@ void VectorLocalization2D::setLocation(vector2f loc, float angle, const char* ma
 
 void VectorLocalization2D::setLocation(vector2f loc, float angle, float locationUncertainty, float angleUncertainty)
 {
-  for(unsigned int i=0; i<particles.size(); i++){
-    particles[i].loc = vector2f(randn(locationUncertainty, loc.x), randn(locationUncertainty, loc.y));
-    particles[i].angle = randn(angleUncertainty, angle);
-  }
+  ParticleInitializer particleInitializer(loc, angle, locationUncertainty, angleUncertainty);
+  PARTICLE_INITIALIZER = &particleInitializer;
+  graph->transform_vertices(initializeParticle);
+  PARTICLE_INITIALIZER = NULL;
 }
 
 void VectorLocalization2D::setMap(const char* map)
@@ -182,11 +179,7 @@ void VectorLocalization2D::initialize(const char* mapName, vector2f loc, float a
     TerminalWarning(buf);
   }
   
-  ParticleInitializer particleInitializer(loc, angle, locationUncertainty, angleUncertainty);
-  PARTICLE_INITIALIZER = &particleInitializer;
-  graph->transform_vertices(initializeParticle);
-  PARTICLE_INITIALIZER = NULL;
-  
+  setLocation(loc, angle, locationUncertainty, angleUncertainty);
   computeLocation(loc, angle);
   
   laserEval.numCorrespondences = 0;
@@ -475,8 +468,6 @@ void predictParticle(graph_type::vertex_type& v)
 
   v.data().loc.x += delta.x;
   v.data().loc.y += delta.y;
-
-//   particles[v.id()] = v.data();
 
   if(debug)
     printf("after: %7.2f,%7.2f %6.2f\u00b0\n", v.data().loc.x, v.data().loc.y, DEG(v.data().angle));
@@ -940,8 +931,6 @@ void refinePointCloudParticle(graph_type::vertex_type& v)
   localization->refineLocationPointCloud(v.id(), v.data().loc, v.data().angle,
       PARTICLE_POINT_CLOUD_EVAL[v.id()].stage0Weights, PARTICLE_POINT_CLOUD_EVAL[v.id()].stageRWeights,
       *REFINEMENT->pointCloud, *REFINEMENT->pointNormals, *REFINEMENT->pointCloudParams);
-
-  particles[v.id()] = v.data();
 }
 
 void updatePointCloudParticle(graph_type::vertex_type& v)
@@ -1149,24 +1138,9 @@ void VectorLocalization2D::naiveResample()
 
 void VectorLocalization2D::distributedResample()
 {
-  // Find the largest particle weight.
-  MAX_WEIGHT = graph->map_reduce_vertices<MaxWeightReducer>(MaxWeightReducer::getMaxWeight).weight;
-  // Resample particles.
-  graph->transform_vertices(distributedResampleParticle);
-}
-
-void distributedResampleParticle(graph_type::vertex_type& v)
-{
-  size_t index = graphlab::random::uniform(size_t(0), particles.size()-1);
-  float beta = graphlab::random::uniform(0.0f, 2*MAX_WEIGHT);
-
-  while (beta > particles[index].weight)
-  {
-    beta -= particles[index].weight;
-    index = (index + 1) % particles.size();
-  }
-
-  v.data() = particles[index];
+  graphlab::omni_engine<ResamplerProgram> engine(graph->dc(), *graph, "sync");
+  engine.signal_all();
+  engine.start();
 }
 
 void VectorLocalization2D::drawDisplay(vector<float> &lines_p1x, vector<float> &lines_p1y, vector<float> &lines_p2x, vector<float> &lines_p2y, vector<uint32_t> &lines_color,

@@ -68,12 +68,14 @@ find_library(EVENT_PTHREADS_LIBRARY NAMES event_pthreads libevent_pthreads)
 #FIXME make machine independent
 find_library(BOOST_CONTEXT_LIBRARY NAMES boost_context libboost_context
   HINTS "/home/iglesias/workspace/boost_1_53_0/stage/lib")
+find_library(BOOST_IOSTREAMS_LIBRARY NAMES boost_iostreams libboost_iostreams
+  HINTS "/home/iglesias/workspace/boost_1_53_0/stage/lib")
 
 set(libs popt pthread ${LUA_LIBRARIES} rt
   ${MPI_LIBRARY} ${MPIXX_LIBRARY} ${TCMALLOC_LIBRARY}
   ${EVENT_LIBRARY} ${EVENT_PTHREADS_LIBRARY}
   ${ZOOKEEPER_MT_LIBRARY} ${ZOOKEEPER_ST_LIBRRARY}
-  ${BOOST_CONTEXT_LIBRARY}
+  ${BOOST_CONTEXT_LIBRARY} ${BOOST_IOSTREAMS_LIBRARY}
   ${GRAPHLAB_LIBRARY})
 
 set(SHARED_SRCS

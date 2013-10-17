@@ -172,10 +172,7 @@ public:
   } EvalValues;
   
   enum Resample{
-    NaiveResampling,
-    LowVarianceResampling,
-    SensorResettingResampling,
-    DistributedResampling,
+    MultinomialResampling,
   };
 
   struct ParticleInitializer {
@@ -271,7 +268,7 @@ public:
   /// Update distribution based on Point Cloud observations
   void updatePointCloud(const vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const VectorLocalization2D::MotionModelParams& motionParams, const VectorLocalization2D::PointCloudParams& pointCloudParams);
   /// Resample distribution
-  void resample(Resample type = LowVarianceResampling);
+  void resample(Resample type = MultinomialResampling);
   
   /// Refine a single location hypothesis based on a LIDAR observation
   void refineLocationLidar(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
@@ -296,12 +293,8 @@ public:
   void setLocation(vector2f loc, float angle, float locationUncertainty, float angleUncertainty);
   /// Switch to a different map
   void setMap(const char * map);
-  /// Resample particles using low variance resampling
-  void lowVarianceResample();
-  /// Resample particles using naive resampling
-  void naiveResample();
   /// Resample particles in a distributed fashion
-  void distributedResample();
+  void multinomialResample();
   /// Compute the maximum likelihood location based on particle spread
   void computeLocation(vector2f &loc, float &angle);
   /// Returns the current map name

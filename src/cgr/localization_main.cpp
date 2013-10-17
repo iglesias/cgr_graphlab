@@ -534,7 +534,7 @@ void Main::lidarCallback(const sensor_msgs::LaserScan &msg)
   if(!noLidar){
     localization->refineLidar(lidarParams);
     localization->updateLidar(lidarParams, motionParams);
-    localization->resample(VectorLocalization2D::LowVarianceResampling);
+    localization->resample(VectorLocalization2D::MultinomialResampling);
     localization->computeLocation(curLoc,curAngle);
   }
 }
@@ -656,7 +656,7 @@ void Main::depthCallback(const sensor_msgs::Image &msg)
     double start = GetTimeSec();
     localization->refinePointCloud(pointCloud2D, pointCloudNormals2D, pointCloudParams);
     localization->updatePointCloud(pointCloud2D, pointCloudNormals2D, motionParams, pointCloudParams);
-    localization->resample(VectorLocalization2D::DistributedResampling);
+    localization->resample(VectorLocalization2D::MultinomialResampling);
     localization->computeLocation(curLoc,curAngle);
     std::cerr << "point cloud update: " << GetTimeSec()-start << std::endl;
   }

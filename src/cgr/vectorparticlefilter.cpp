@@ -48,7 +48,7 @@ std::vector< std::vector<Vector2f> > POINTS2;
 std::vector<vector2f> locCorrectionP0;
 std::vector<vector2f> locCorrectionP1;
 
-//This guy is declared and created in localization_main
+//This guy is created in localization_main
 extern VectorLocalization2D* localization;
 
 inline float eigenCross(const Vector2f &v1, const Vector2f &v2)
@@ -949,137 +949,13 @@ void VectorLocalization2D::computeLocation(vector2f& loc, float& angle)
 void VectorLocalization2D::resample(Resample type)
 {
   switch(type){
-  case NaiveResampling:
-    naiveResample();
-    break;
-  case LowVarianceResampling:
-    lowVarianceResample();
-    break;
-  case SensorResettingResampling:
-    break;
-  case DistributedResampling:
-    distributedResample();
+  case MultinomialResampling:
+    multinomialResample();
     break;
   }
 }
 
-void VectorLocalization2D::lowVarianceResample()
-{ 
-  vector<Particle2D> newParticles;
-  newParticles.resize(numParticles);
-  float totalWeight = 0.0;
-  float newWeight = 1.0/float(numParticles);
-  int numRefinedParticles = (int) particles.size();
-  
-  refinedImportanceWeights = unrefinedImportanceWeights = 0.0;
-  for(int i=0; i<numRefinedParticles; i++){
-    //Get rid of particles with undefined weights
-    if(isnan(particles[i].weight) || isinf(particles[i].weight) || particles[i].weight<0.0)
-      particles[i].weight = 0.0;
-    totalWeight += particles[i].weight;
-    if(i<numParticles)
-      refinedImportanceWeights += particles[i].weight;
-    else
-      unrefinedImportanceWeights += particles[i].weight;
-  }
-  
-  if(totalWeight<FLT_MIN){
-    //TerminalWarning("Particles have zero total weight!");
-    for(int i=0; i<numParticles; i++){
-      particles[i].weight = newWeight;
-    }
-    return;
-    //exit(0);
-  }
-  
-  float weightIncrement = totalWeight/float(numParticles);
-  if(weightIncrement<FLT_MIN) TerminalWarning("Particle weights less than float precision");
-  
-  numRefinedParticlesSampled = numUnrefinedParticlesSampled = 0;
-  float x = frand(0.0f,totalWeight);
-  int j=0;
-  float f=particles[0].weight;
-  for(int i=0; i<numParticles; i++){
-    while(f<x){
-      j = (j+1)%numRefinedParticles;
-      f += particles[j].weight;
-    }
-    if(j<numParticles)
-      numRefinedParticlesSampled++;
-    else
-      numUnrefinedParticlesSampled++;
-    
-    newParticles[i] = particles[j];
-    newParticles[i].weight = newWeight;
-    if(particles[i].weight < FLT_MIN){
-      //This particle was depleted: add replacement noise
-      vector2f deltaLoc = vector2f(frand(-1.0,1.0),frand(-1.0,1.0))*0.05;
-      float deltaAngle = frand(-1.0,1.0)*RAD(5.0);
-      newParticles[i].loc += deltaLoc;
-      newParticles[i].angle += deltaAngle;
-    }
-    x += weightIncrement;
-  }
-  
-  particles = newParticles;
-}
-
-void VectorLocalization2D::naiveResample()
-{
-  vector<Particle2D> newParticles;
-  static vector<Particle2D> oldParticles;
-  newParticles.resize(numParticles);
-  float totalWeight = 0.0;
-  float newWeight = 1.0/numParticles;
-  int numRefinedParticles = (int) particles.size();
-  
-  refinedImportanceWeights = unrefinedImportanceWeights = 0.0;
-  int numInfs=0, numNans=0, numNegs=0;
-  for(int i=0; i<numRefinedParticles; i++){
-    if(isnan(particles[i].weight))
-      numNans++;
-    else if(isinf(particles[i].weight))
-      numInfs++;
-    else if(particles[i].weight<0.0)
-      numNegs++;
-    //Get rid of particles with undefined weights
-    if(isnan(particles[i].weight) || isinf(particles[i].weight) || particles[i].weight<0.0)
-      particles[i].weight = 0.0;
-    totalWeight += particles[i].weight;
-    if(i<numParticles)
-      refinedImportanceWeights += particles[i].weight;
-    else
-      unrefinedImportanceWeights += particles[i].weight;
-  }
-  if(totalWeight<FLT_MIN){
-    TerminalWarning("Particles have zero total weight!");
-    printf("inf:%d nan:%d neg:%d\n",numInfs, numNans, numNegs);
-    particles = oldParticles;
-    return;
-    //exit(0);
-  }
-  
-  numRefinedParticlesSampled = numUnrefinedParticlesSampled = 0;
-  for(int i=0; i<numParticles; i++){
-    float x = frand(0.0f,totalWeight);
-    float f=particles[0].weight;
-    int j=0;
-    while(f<x && j<numRefinedParticles-1){
-      j++;
-      f += particles[j].weight;
-    }
-    if(j<numParticles)
-      numRefinedParticlesSampled++;
-    else
-      numUnrefinedParticlesSampled++;
-    newParticles[i] = particles[j];
-    newParticles[i].weight = newWeight;
-  }
-  particles = newParticles;
-  oldParticles = particles;
-}
-
-void VectorLocalization2D::distributedResample()
+void VectorLocalization2D::multinomialResample()
 {
   engine->signal_all();
   engine->start();

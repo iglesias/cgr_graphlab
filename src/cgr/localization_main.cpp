@@ -106,8 +106,8 @@ geometry_msgs::PoseArray particlesMsg;
 
 //Point Cloud parameters
 GVector::matrix3d<float> kinectToRobotTransform;
-//KinectRawDepthCam kinectDepthCam;
-KinectOpenNIDepthCam kinectDepthCam;
+KinectRawDepthCam kinectDepthCam;
+// KinectOpenNIDepthCam kinectDepthCam;
 PlaneFilter::PlaneFilterParams filterParams;
 PlaneFilter planeFilter;
 
@@ -117,7 +117,7 @@ bool localizationCallback(LocalizationInterfaceSrv::Request& req, LocalizationIn
 {
   vector2f loc(req.loc_x, req.loc_y);
   if(debugLevel>0) printf("Setting location: %f %f %f\u00b0 on %s\n",V2COMP(loc),DEG(req.orientation),req.map.c_str());
-  localization->setLocation(loc, req.orientation,req.map.c_str(),0.01,RAD(1.0));
+  localization->setLocation(loc, req.orientation,req.map.c_str(), 0.01,RAD(1.0));
   return true;
 }
 
@@ -555,12 +555,16 @@ void Main::depthCallback(const sensor_msgs::Image &msg)
 
   tf::StampedTransform baseLinkToKinect;
   try{
-//    transformListener.lookupTransform("base_link", msg.header.frame_id, ros::Time(0), baseLinkToKinect);
-    transformListener.lookupTransform("base_link", "camera_link", ros::Time(0), baseLinkToKinect);
+   transformListener.lookupTransform("base_footprint", msg.header.frame_id, ros::Time(0), baseLinkToKinect);
+//     transformListener.lookupTransform("base_link", "camera_link", ros::Time(0), baseLinkToKinect);
   }
   catch(tf::TransformException ex){
     ROS_ERROR("%s",ex.what());
-  } tf::Vector3 translationTf = baseLinkToKinect.getOrigin(); tf::Quaternion rotationTf = baseLinkToKinect.getRotation(); Quaternionf rotQuat3D(rotationTf.w(), rotationTf.x(), rotationTf.y(), rotationTf.z());
+  }
+
+  tf::Vector3 translationTf = baseLinkToKinect.getOrigin();
+  tf::Quaternion rotationTf = baseLinkToKinect.getRotation();
+  Quaternionf rotQuat3D(rotationTf.w(), rotationTf.x(), rotationTf.y(), rotationTf.z());
   Matrix3f rotMatrix(rotQuat3D);
   kinectToRobotTransform.m11 = rotMatrix(0,0);
   kinectToRobotTransform.m12 = rotMatrix(0,1);
@@ -652,7 +656,7 @@ void Main::depthCallback(const sensor_msgs::Image &msg)
     double start = GetTimeSec();
     localization->refinePointCloud(pointCloud2D, pointCloudNormals2D, pointCloudParams);
     localization->updatePointCloud(pointCloud2D, pointCloudNormals2D, motionParams, pointCloudParams);
-    localization->resample(VectorLocalization2D::LowVarianceResampling);
+    localization->resample(VectorLocalization2D::DistributedResampling);
     localization->computeLocation(curLoc,curAngle);
     std::cerr << "point cloud update: " << GetTimeSec()-start << std::endl;
   }
@@ -724,6 +728,7 @@ int main(int argc, char** argv)
 //   InitHandleStop(&run);
   ros::NodeHandle n;
 
+  global_logger().set_log_level(LOG_NONE);
   graphlab::mpi_tools::init(argc, argv);
   graphlab::distributed_control dc;
   graph_type graph(dc);
@@ -748,10 +753,9 @@ int main(int argc, char** argv)
   Main main;
   ros::Subscriber odometrySubscriber = n.subscribe("odom", 20, odometryCallback);
   ros::Subscriber lidarSubscriber = n.subscribe("scan", 5, &Main::lidarCallback, &main);
-//   ros::Subscriber kinectSubscriber = n.subscribe("kinect_depth", 1, depthCallback);
-  ros::Subscriber kinectSubscriber = n.subscribe("/camera/depth/image_raw", 1, &Main::depthCallback, &main);
+  ros::Subscriber kinectSubscriber = n.subscribe("kinect_depth", 1, &Main::depthCallback, &main);
+//   ros::Subscriber kinectSubscriber = n.subscribe("/camera/depth/image_raw", 1, &Main::depthCallback, &main);
   ros::Subscriber initialPoseSubscriber = n.subscribe("initialpose", 1, initialPoseCallback);
-
 
   filteredPointCloudPublisher = n.advertise<sensor_msgs::PointCloud>("Cobot/Kinect/FilteredPointCloud", 1);
   completePointCloudPublisher = n.advertise<sensor_msgs::PointCloud>("Cobot/Kinect/CompletePointCloud", 1);

@@ -36,8 +36,10 @@ static const bool EnableProfiling = false;
 
 //Forward declaration
 class Particle2D;
+class ResamplerProgram;
 
 typedef graphlab::distributed_graph<Particle2D, graphlab::empty> graph_type;
+typedef graphlab::omni_engine<ResamplerProgram> engine_type;
 
 using namespace std;
 using namespace Eigen;
@@ -170,10 +172,7 @@ public:
   } EvalValues;
   
   enum Resample{
-    NaiveResampling,
-    LowVarianceResampling,
-    SensorResettingResampling,
-    DistributedResampling,
+    MultinomialResampling,
   };
 
   struct ParticleInitializer {
@@ -218,6 +217,8 @@ public:
 protected:
   //Distributed graph
   graph_type* graph;
+  //GraphLab engine used to execute GAS programs
+  engine_type* engine;
 
   //Current state
   VectorMap* currentMap;
@@ -245,10 +246,11 @@ protected:
   double updateTime;
   EvalValues pointCloudEval;
   EvalValues laserEval;
-    
+
 public:
   VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder);
-  
+  ~VectorLocalization2D();
+
   /// Sets Particle Filter LIDAR parameters
   void setParams(MotionModelParams _predictParams, LidarParams _lidarUpdateParams);
   /// Loads All the floor maps listed in atlas.txt
@@ -266,7 +268,7 @@ public:
   /// Update distribution based on Point Cloud observations
   void updatePointCloud(const vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const VectorLocalization2D::MotionModelParams& motionParams, const VectorLocalization2D::PointCloudParams& pointCloudParams);
   /// Resample distribution
-  void resample(Resample type = LowVarianceResampling);
+  void resample(Resample type = MultinomialResampling);
   
   /// Refine a single location hypothesis based on a LIDAR observation
   void refineLocationLidar(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
@@ -283,22 +285,16 @@ public:
   void getLidarGradient(vector2f loc, float angle, vector2f& locGrad, float& angleGrad, float& logWeight, VectorLocalization2D::LidarParams lidarParams, const vector< Vector2f >& laserPoints, const vector<int> & lineCorrespondences, const vector<line2f> &lines);
   /// Observation likelihood based on LIDAR obhservation
   float observationWeightLidar(vector2f loc, float angle, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
-  /// Observation likelihood based on point cloud obhservation
+  /// Observation likelihood based on point cloud observation
   float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams) const;
-  /// Probability of specified pose corresponding to motion model
-  float motionModelWeight(vector2f loc, float angle, const VectorLocalization2D::MotionModelParams& motionParams) const;
   /// Set pose with specified uncertainty
   void setLocation(vector2f loc, float angle, const char* map, float locationUncertainty, float angleUncertainty);
   /// Set pose and map with specified uncertainty
   void setLocation(vector2f loc, float angle, float locationUncertainty, float angleUncertainty);
   /// Switch to a different map
   void setMap(const char * map);
-  /// Resample particles using low variance resampling
-  void lowVarianceResample();
-  /// Resample particles using naive resampling
-  void naiveResample();
   /// Resample particles in a distributed fashion
-  void distributedResample();
+  void multinomialResample();
   /// Compute the maximum likelihood location based on particle spread
   void computeLocation(vector2f &loc, float &angle);
   /// Returns the current map name
@@ -332,11 +328,11 @@ void predictParticle(graph_type::vertex_type& v);
 /// Refine particle using point cloud observation
 void refinePointCloudParticle(graph_type::vertex_type& v);
 
-/// Compute particle sampling densities
-void samplingDensityPointCloudParticle(graph_type::vertex_type& v);
-
-/// Compute particle weights
+/// Compute importance weights
 void updatePointCloudParticle(graph_type::vertex_type& v);
+
+/// Normalize importance weights
+void normalizeWeightParticle(graph_type::vertex_type& v);
 
 /// Resample a particle
 void distributedResampleParticle(graph_type::vertex_type& v);
@@ -351,25 +347,17 @@ struct PoseReducer : public graphlab::IS_POD_TYPE {
   static PoseReducer getPose(const graph_type::vertex_type& v);
 
   PoseReducer& operator+=(const PoseReducer& other);
-}; // struct PoseReducer
+};
 
-/// MapReduce to compute the total sampling density that will be used for weight normalization
-struct SamplingDensityReducer : public graphlab::IS_POD_TYPE {
-  float samplingDensity;
-
-  static SamplingDensityReducer getTotalDensity(const graph_type::vertex_type& v);
-
-  SamplingDensityReducer& operator+=(const SamplingDensityReducer& other);
-}; // struct SamplingDensityReducer
-
-/// MapReduce to obtain the maximum particle weight
-struct MaxWeightReducer : public graphlab::IS_POD_TYPE {
+/// MapReduce to compute the total weight required to normalize
+struct TotalWeightReducer : public graphlab::IS_POD_TYPE {
   float weight;
 
-  static MaxWeightReducer getMaxWeight(const graph_type::vertex_type& v);
-
-  MaxWeightReducer& operator+=(const MaxWeightReducer& other);
-}; // struct MaxWeightReducer
+  TotalWeightReducer() : weight(0.0) {}
+  explicit TotalWeightReducer(float weight) { this->weight = weight; }
+  static TotalWeightReducer getWeight(const graph_type::vertex_type& v);
+  TotalWeightReducer& operator+=(const TotalWeightReducer& other);
+};
 
 struct Resampler {
   public:
@@ -408,8 +396,8 @@ class ResamplerProgram : public graphlab::ivertex_program<graph_type, gather_typ
 
       // resample
       float beta = graphlab::random::uniform(0.0f, weight_cdf[weight_cdf.size()-1]);
-      int i = 0;
-      while (weight_cdf[i++] < beta);
+      unsigned int i = 0;
+      while (weight_cdf[i] < beta) i++;
       if (i > 0) {
         assert(i <= total.in_particles.size());
         // i-1 because the the first weight in weight_cdf corresponds to the current vertex
@@ -422,6 +410,8 @@ class ResamplerProgram : public graphlab::ivertex_program<graph_type, gather_typ
     edge_dir_type scatter_edges(icontext_type& context, const vertex_type& vertex) const {
       return graphlab::NO_EDGES;
     }
+
+    void scatter(icontext_type& context, const vertex_type& vertex, const edge_type& edge) const { }
 };
 
 #endif //VECTORPARTICLEFILTER_H

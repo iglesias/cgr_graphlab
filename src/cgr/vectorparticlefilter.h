@@ -32,8 +32,6 @@
 #include "util.h"
 #include "terminal_utils.h"
 
-static const bool EnableProfiling = false;
-
 //Forward declaration
 class Particle2D;
 class ResamplerProgram;
@@ -43,6 +41,7 @@ typedef graphlab::omni_engine<ResamplerProgram> engine_type;
 
 using namespace std;
 using namespace Eigen;
+
 /**
 A Particle for 2D localization
 **/
@@ -273,7 +272,7 @@ public:
   /// Refine a single location hypothesis based on a LIDAR observation
   void refineLocationLidar(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
   /// Refine a single location hypothesis based on a Point Cloud observation
-  void refineLocationPointCloud(int particleidx, vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams) const;
+  void refineLocationPointCloud(int particleidx, vector2f& loc, float& angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams) const;
   
   /// Attractor function used for refining location hypotheses 
   inline Vector2f attractorFunction(line2f l, Vector2f p, float attractorRange, float margin = 0) const;
@@ -299,22 +298,14 @@ public:
   void computeLocation(vector2f &loc, float &angle);
   /// Returns the current map name
   const char* getCurrentMapName(){return currentMap->mapName.c_str();}
-  /// Write to file run statistics about particle distribution
-  void saveRunLog(FILE* f);
   /// Write to file riun-time profiling information
   void saveProfilingStats(FILE* f);
-  /// Compile lists of drawing primitives that can be visualized for debugging purposes
-  void drawDisplay(vector<float> &lines_p1x, vector<float> &lines_p1y, vector<float> &lines_p2x, vector<float> &lines_p2y, vector<uint32_t> &lines_color,
-                   vector<float> &points_x, vector<float> &points_y, vector<uint32_t> &points_color, 
-                   vector<float> &circles_x, vector<float> &circles_y, vector<uint32_t> &circles_color, float scale=1.0);
   /// Return evaluation values
   void getEvalValues(EvalValues &_laserEval, EvalValues &_pointCloudEval);
   /// Return angle and location uncertainties
   void getUncertainty(float &_angleUnc, float &_locUnc);
   /// Removes duplicate points with the same observation angle and range
   void reducePointCloud(const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, vector< vector2f >& reducedPointCloud, vector< vector2f >& reducedPointNormals);
-  /// Returns current particles
-  void getParticles(std::vector<Particle2D> &_particles);
   /// Return the number of particles
   int getNumParticles() const { return numParticles; }
 };

@@ -102,7 +102,6 @@ float curAngle;
 double curTime;
 sensor_msgs::LaserScan lastLidarMsg;
 sensor_msgs::Image lastDepthMsg;
-geometry_msgs::PoseArray particlesMsg;
 
 //Point Cloud parameters
 GVector::matrix3d<float> kinectToRobotTransform;
@@ -184,23 +183,6 @@ void Main::publishLocation(bool limitRate)
 
   localizationPublisher.publish(msg);
 
-  //Publish particles
-  vector<Particle2D> particles;
-  localization->getParticles(particles);
-  particlesMsg.poses.resize(particles.size());
-  geometry_msgs::Pose particle;
-  for(unsigned int i=0; i<particles.size(); i++){
-    particle.position.x = particles[i].loc.x;
-    particle.position.y = particles[i].loc.y;
-    particle.position.z = 0;
-    particle.orientation.w = cos(0.5*particles[i].angle);
-    particle.orientation.x = 0;
-    particle.orientation.y = 0;
-    particle.orientation.z = sin(0.5*particles[i].angle);
-    particlesMsg.poses[i] = particle;
-  }
-  particlesPublisher.publish(particlesMsg);
-
   //Publish map to base_footprint tf
   try{
     tf::StampedTransform odomToBaseTf;
@@ -240,7 +222,6 @@ void publishGUI()
   guiMsg.robotLocX = curLoc.x;
   guiMsg.robotLocY = curLoc.y;
   guiMsg.robotAngle = curAngle;
-  localization->drawDisplay(guiMsg.lines_p1x, guiMsg.lines_p1y, guiMsg.lines_p2x, guiMsg.lines_p2y, guiMsg.lines_col, guiMsg.points_x, guiMsg.points_y, guiMsg.points_col, guiMsg.circles_x, guiMsg.circles_y, guiMsg.circles_col, 1.0);
   //drawPointCloud();
   guiPublisher.publish(guiMsg);
 }

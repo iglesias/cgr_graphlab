@@ -32,44 +32,45 @@
 #include "util.h"
 #include "terminal_utils.h"
 
-//Forward declaration
+static const bool EnableProfiling = false;
+
+//Forward declaration 
 class Particle2D;
-class ResamplerProgram;
 
 typedef graphlab::distributed_graph<Particle2D, graphlab::empty> graph_type;
-typedef graphlab::omni_engine<ResamplerProgram> engine_type;
 
 using namespace std;
 using namespace Eigen;
-
 /**
 A Particle for 2D localization
 **/
 class Particle2D {
 public:
-  vector2f loc;
+  vector2f loc, lastLoc;
   float angle;
   float weight;
 public:
   Particle2D() {weight = angle = 0.0; loc.zero();}
-  Particle2D(float _x, float _y, float _theta, float _w) { loc.set(_x,_y); angle = _theta; weight = _w;}
+  Particle2D(float _x, float _y, float _theta, float _w) { loc.set(_x,_y); lastLoc.set(-DBL_MAX,-DBL_MAX); angle = _theta; weight = _w;}
   bool operator<(const Particle2D &other) {return weight<other.weight;}
   bool operator>(const Particle2D &other) {return weight>other.weight;}
 
-  Particle2D& operator=(const Particle2D &other) {
+  Particle2D &operator=(const Particle2D &other) {
     angle = other.angle;
     weight = other.weight;
     loc.x = other.loc.x;
     loc.y = other.loc.y;
+    lastLoc.x = other.lastLoc.x;
+    lastLoc.y = other.lastLoc.y;
     return *this;
   } 
 
   void save(graphlab::oarchive &oarc) const {
-    oarc << angle << weight << loc.x << loc.y;
+    oarc << angle << weight << loc.x << loc.y << lastLoc.x << lastLoc.y;
   }
 
   void load(graphlab::iarchive &iarc) {
-    iarc >> angle >> weight >> loc.x >> loc.y;
+    iarc >> angle >> weight >> loc.x >> loc.y >> lastLoc.x >> lastLoc.y;
   }
 };
 
@@ -171,7 +172,9 @@ public:
   } EvalValues;
   
   enum Resample{
-    MultinomialResampling,
+    NaiveResampling,
+    LowVarianceResampling,
+    SensorResettingResampling,
   };
 
   struct ParticleInitializer {
@@ -203,21 +206,10 @@ public:
     const PointCloudParams* pointCloudParams;
   };
 
-  struct Update {
-    Update();
-    Update(const MotionModelParams& _motionParams, const std::vector<vector2f>& _pointCloud, const std::vector<vector2f>& _pointNormals, const PointCloudParams& _pointCloudParams);
-
-    const MotionModelParams* motionParams;
-    const std::vector<vector2f>* pointCloud;
-    const std::vector<vector2f>* pointNormals;
-    const PointCloudParams* pointCloudParams;
-  };
-
+  
 protected:
   //Distributed graph
   graph_type* graph;
-  //GraphLab engine used to execute GAS programs
-  engine_type* engine;
 
   //Current state
   VectorMap* currentMap;
@@ -225,17 +217,19 @@ protected:
   float currentAngle;
   vector2f currentLocStdDev;
   float currentAngleStdDev;
+  vector<Particle2D> particlesRefined;
   int numParticles;
+  vector<float> samplingDensity;
   vector2f lastDistanceMoved;
   float lastAngleTurned;
-
+  
   string mapsFolder;
   vector<VectorMap> maps;
-
+  
   //These are class-wide only so that they can be accessed for debugging purposes
   vector<Vector2f> gradients;
   vector<Vector2f> points;
-
+  
   //Statistics of performance
   int numUnrefinedParticlesSampled;
   int numRefinedParticlesSampled;
@@ -245,11 +239,10 @@ protected:
   double updateTime;
   EvalValues pointCloudEval;
   EvalValues laserEval;
-
+    
 public:
   VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder);
-  ~VectorLocalization2D();
-
+  
   /// Sets Particle Filter LIDAR parameters
   void setParams(MotionModelParams _predictParams, LidarParams _lidarUpdateParams);
   /// Loads All the floor maps listed in atlas.txt
@@ -265,14 +258,14 @@ public:
   /// Update distribution based on LIDAR observations
   void updateLidar(const VectorLocalization2D::LidarParams& lidarParams, const VectorLocalization2D::MotionModelParams& motionParams);
   /// Update distribution based on Point Cloud observations
-  void updatePointCloud(const vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const VectorLocalization2D::MotionModelParams& motionParams, const VectorLocalization2D::PointCloudParams& pointCloudParams);
+  void updatePointCloud(vector< vector2f >& pointCloud, vector< vector2f >& pointNormals, const VectorLocalization2D::MotionModelParams& motionParams, const VectorLocalization2D::PointCloudParams& pointCloudParams);
   /// Resample distribution
-  void resample(Resample type = MultinomialResampling);
+  void resample(Resample type = LowVarianceResampling);
   
   /// Refine a single location hypothesis based on a LIDAR observation
   void refineLocationLidar(vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
   /// Refine a single location hypothesis based on a Point Cloud observation
-  void refineLocationPointCloud(int particleidx, vector2f& loc, float& angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams) const;
+  void refineLocationPointCloud(int particleidx, vector2f& loc, float& angle, float& initialWeight, float& finalWeight, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const VectorLocalization2D::PointCloudParams& pointCloudParams) const;
   
   /// Attractor function used for refining location hypotheses 
   inline Vector2f attractorFunction(line2f l, Vector2f p, float attractorRange, float margin = 0) const;
@@ -284,30 +277,40 @@ public:
   void getLidarGradient(vector2f loc, float angle, vector2f& locGrad, float& angleGrad, float& logWeight, VectorLocalization2D::LidarParams lidarParams, const vector< Vector2f >& laserPoints, const vector<int> & lineCorrespondences, const vector<line2f> &lines);
   /// Observation likelihood based on LIDAR obhservation
   float observationWeightLidar(vector2f loc, float angle, const VectorLocalization2D::LidarParams& lidarParams, const std::vector< Vector2f >& laserPoints);
-  /// Observation likelihood based on point cloud observation
-  float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams) const;
+  /// Observation likelihood based on point cloud obhservation
+  float observationWeightPointCloud(vector2f loc, float angle, const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, const PointCloudParams& pointCloudParams);
+  /// Probability of specified pose corresponding to motion model
+  float motionModelWeight(vector2f loc, float angle, const VectorLocalization2D::MotionModelParams& motionParams);
   /// Set pose with specified uncertainty
   void setLocation(vector2f loc, float angle, const char* map, float locationUncertainty, float angleUncertainty);
   /// Set pose and map with specified uncertainty
   void setLocation(vector2f loc, float angle, float locationUncertainty, float angleUncertainty);
   /// Switch to a different map
   void setMap(const char * map);
-  /// Resample particles in a distributed fashion
-  void multinomialResample();
+  /// Resample particles using low variance resampling
+  void lowVarianceResample();
+  /// Resample particles using naive resampling
+  void naiveResample();
   /// Compute the maximum likelihood location based on particle spread
   void computeLocation(vector2f &loc, float &angle);
   /// Returns the current map name
   const char* getCurrentMapName(){return currentMap->mapName.c_str();}
+  /// Write to file run statistics about particle distribution
+  void saveRunLog(FILE* f);
   /// Write to file riun-time profiling information
   void saveProfilingStats(FILE* f);
+  /// Compile lists of drawing primitives that can be visualized for debugging purposes
+  void drawDisplay(vector<float> &lines_p1x, vector<float> &lines_p1y, vector<float> &lines_p2x, vector<float> &lines_p2y, vector<uint32_t> &lines_color,
+                   vector<float> &points_x, vector<float> &points_y, vector<uint32_t> &points_color, 
+                   vector<float> &circles_x, vector<float> &circles_y, vector<uint32_t> &circles_color, float scale=1.0);
   /// Return evaluation values
   void getEvalValues(EvalValues &_laserEval, EvalValues &_pointCloudEval);
   /// Return angle and location uncertainties
   void getUncertainty(float &_angleUnc, float &_locUnc);
   /// Removes duplicate points with the same observation angle and range
   void reducePointCloud(const vector< vector2f >& pointCloud, const vector< vector2f >& pointNormals, vector< vector2f >& reducedPointCloud, vector< vector2f >& reducedPointNormals);
-  /// Return the number of particles
-  int getNumParticles() const { return numParticles; }
+  /// Returns current particles
+  void getParticles(std::vector<Particle2D> &_particles);
 };
 
 /// Initialize particle using location and uncertainties
@@ -319,15 +322,6 @@ void predictParticle(graph_type::vertex_type& v);
 /// Refine particle using point cloud observation
 void refinePointCloudParticle(graph_type::vertex_type& v);
 
-/// Compute importance weights
-void updatePointCloudParticle(graph_type::vertex_type& v);
-
-/// Normalize importance weights
-void normalizeWeightParticle(graph_type::vertex_type& v);
-
-/// Resample a particle
-void distributedResampleParticle(graph_type::vertex_type& v);
-
 /// MapReduce to compute the pose applying using maximum likelihood over the particle set
 struct PoseReducer : public graphlab::IS_POD_TYPE {
   double x;
@@ -338,71 +332,8 @@ struct PoseReducer : public graphlab::IS_POD_TYPE {
   static PoseReducer getPose(const graph_type::vertex_type& v);
 
   PoseReducer& operator+=(const PoseReducer& other);
-};
+}; // struct PoseReducer
 
-/// MapReduce to compute the total weight required to normalize
-struct TotalWeightReducer : public graphlab::IS_POD_TYPE {
-  float weight;
-
-  TotalWeightReducer() : weight(0.0) {}
-  explicit TotalWeightReducer(float weight) { this->weight = weight; }
-  static TotalWeightReducer getWeight(const graph_type::vertex_type& v);
-  TotalWeightReducer& operator+=(const TotalWeightReducer& other);
-};
-
-struct Resampler {
-  public:
-    std::vector<Particle2D> in_particles;
-
-  public:
-    Resampler();
-
-    explicit Resampler(const Particle2D& particle);
-
-    Resampler& operator+=(const Resampler& other);
-
-    void save(graphlab::oarchive& oarc) const;
-
-    void load(graphlab::iarchive& iarc);
-};
-
-typedef Resampler gather_type;
-
-class ResamplerProgram : public graphlab::ivertex_program<graph_type, gather_type>, public graphlab::IS_POD_TYPE {
-  public:
-    edge_dir_type gather_edges(icontext_type& context, const vertex_type& vertex) const {
-      return graphlab::IN_EDGES;
-    }
-
-    gather_type gather(icontext_type& context, const vertex_type& vertex, edge_type& edge) const {
-      return Resampler(edge.source().data());
-    }
-
-    void apply(icontext_type& context, vertex_type& vertex, const gather_type& total) {
-      // compute the CDF of the particles that participate in this resampling
-      std::vector<float> weight_cdf(1+total.in_particles.size(), 0.0);
-      weight_cdf[0] = vertex.data().weight;
-      for (unsigned int i = 0; i < total.in_particles.size(); ++i)
-        weight_cdf[i+1] = weight_cdf[i] + total.in_particles[i].weight;
-
-      // resample
-      float beta = graphlab::random::uniform(0.0f, weight_cdf[weight_cdf.size()-1]);
-      unsigned int i = 0;
-      while (weight_cdf[i] < beta) i++;
-      if (i > 0) {
-        assert(i <= total.in_particles.size());
-        // i-1 because the the first weight in weight_cdf corresponds to the current vertex
-        vertex.data() = total.in_particles[i-1];
-      } else {
-        assert(i == 0);
-      }
-    }
-
-    edge_dir_type scatter_edges(icontext_type& context, const vertex_type& vertex) const {
-      return graphlab::NO_EDGES;
-    }
-
-    void scatter(icontext_type& context, const vertex_type& vertex, const edge_type& edge) const { }
-};
 
 #endif //VECTORPARTICLEFILTER_H
+

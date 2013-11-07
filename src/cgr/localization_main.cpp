@@ -102,11 +102,12 @@ float curAngle;
 double curTime;
 sensor_msgs::LaserScan lastLidarMsg;
 sensor_msgs::Image lastDepthMsg;
+geometry_msgs::PoseArray particlesMsg;
 
 //Point Cloud parameters
 GVector::matrix3d<float> kinectToRobotTransform;
-KinectRawDepthCam kinectDepthCam;
-// KinectOpenNIDepthCam kinectDepthCam;
+//KinectRawDepthCam kinectDepthCam;
+KinectOpenNIDepthCam kinectDepthCam;
 PlaneFilter::PlaneFilterParams filterParams;
 PlaneFilter planeFilter;
 
@@ -116,7 +117,7 @@ bool localizationCallback(LocalizationInterfaceSrv::Request& req, LocalizationIn
 {
   vector2f loc(req.loc_x, req.loc_y);
   if(debugLevel>0) printf("Setting location: %f %f %f\u00b0 on %s\n",V2COMP(loc),DEG(req.orientation),req.map.c_str());
-  localization->setLocation(loc, req.orientation,req.map.c_str(), 0.01,RAD(1.0));
+  localization->setLocation(loc, req.orientation,req.map.c_str(),0.01,RAD(1.0));
   return true;
 }
 
@@ -183,6 +184,23 @@ void Main::publishLocation(bool limitRate)
 
   localizationPublisher.publish(msg);
 
+  //Publish particles
+  vector<Particle2D> particles;
+  localization->getParticles(particles);
+  particlesMsg.poses.resize(particles.size());
+  geometry_msgs::Pose particle;
+  for(unsigned int i=0; i<particles.size(); i++){
+    particle.position.x = particles[i].loc.x;
+    particle.position.y = particles[i].loc.y;
+    particle.position.z = 0;
+    particle.orientation.w = cos(0.5*particles[i].angle);
+    particle.orientation.x = 0;
+    particle.orientation.y = 0;
+    particle.orientation.z = sin(0.5*particles[i].angle);
+    particlesMsg.poses[i] = particle;
+  }
+  particlesPublisher.publish(particlesMsg);
+
   //Publish map to base_footprint tf
   try{
     tf::StampedTransform odomToBaseTf;
@@ -222,6 +240,7 @@ void publishGUI()
   guiMsg.robotLocX = curLoc.x;
   guiMsg.robotLocY = curLoc.y;
   guiMsg.robotAngle = curAngle;
+  localization->drawDisplay(guiMsg.lines_p1x, guiMsg.lines_p1y, guiMsg.lines_p2x, guiMsg.lines_p2y, guiMsg.lines_col, guiMsg.points_x, guiMsg.points_y, guiMsg.points_col, guiMsg.circles_x, guiMsg.circles_y, guiMsg.circles_col, 1.0);
   //drawPointCloud();
   guiPublisher.publish(guiMsg);
 }
@@ -515,7 +534,7 @@ void Main::lidarCallback(const sensor_msgs::LaserScan &msg)
   if(!noLidar){
     localization->refineLidar(lidarParams);
     localization->updateLidar(lidarParams, motionParams);
-    localization->resample(VectorLocalization2D::MultinomialResampling);
+    localization->resample(VectorLocalization2D::LowVarianceResampling);
     localization->computeLocation(curLoc,curAngle);
   }
 }
@@ -536,16 +555,12 @@ void Main::depthCallback(const sensor_msgs::Image &msg)
 
   tf::StampedTransform baseLinkToKinect;
   try{
-   transformListener.lookupTransform("base_footprint", msg.header.frame_id, ros::Time(0), baseLinkToKinect);
-//     transformListener.lookupTransform("base_link", "camera_link", ros::Time(0), baseLinkToKinect);
+//    transformListener.lookupTransform("base_link", msg.header.frame_id, ros::Time(0), baseLinkToKinect);
+    transformListener.lookupTransform("base_link", "camera_link", ros::Time(0), baseLinkToKinect);
   }
   catch(tf::TransformException ex){
     ROS_ERROR("%s",ex.what());
-  }
-
-  tf::Vector3 translationTf = baseLinkToKinect.getOrigin();
-  tf::Quaternion rotationTf = baseLinkToKinect.getRotation();
-  Quaternionf rotQuat3D(rotationTf.w(), rotationTf.x(), rotationTf.y(), rotationTf.z());
+  } tf::Vector3 translationTf = baseLinkToKinect.getOrigin(); tf::Quaternion rotationTf = baseLinkToKinect.getRotation(); Quaternionf rotQuat3D(rotationTf.w(), rotationTf.x(), rotationTf.y(), rotationTf.z());
   Matrix3f rotMatrix(rotQuat3D);
   kinectToRobotTransform.m11 = rotMatrix(0,0);
   kinectToRobotTransform.m12 = rotMatrix(0,1);
@@ -637,7 +652,7 @@ void Main::depthCallback(const sensor_msgs::Image &msg)
     double start = GetTimeSec();
     localization->refinePointCloud(pointCloud2D, pointCloudNormals2D, pointCloudParams);
     localization->updatePointCloud(pointCloud2D, pointCloudNormals2D, motionParams, pointCloudParams);
-    localization->resample(VectorLocalization2D::MultinomialResampling);
+    localization->resample(VectorLocalization2D::LowVarianceResampling);
     localization->computeLocation(curLoc,curAngle);
     std::cerr << "point cloud update: " << GetTimeSec()-start << std::endl;
   }
@@ -709,7 +724,6 @@ int main(int argc, char** argv)
 //   InitHandleStop(&run);
   ros::NodeHandle n;
 
-  global_logger().set_log_level(LOG_NONE);
   graphlab::mpi_tools::init(argc, argv);
   graphlab::distributed_control dc;
   graph_type graph(dc);
@@ -734,9 +748,10 @@ int main(int argc, char** argv)
   Main main;
   ros::Subscriber odometrySubscriber = n.subscribe("odom", 20, odometryCallback);
   ros::Subscriber lidarSubscriber = n.subscribe("scan", 5, &Main::lidarCallback, &main);
-  ros::Subscriber kinectSubscriber = n.subscribe("kinect_depth", 1, &Main::depthCallback, &main);
-//   ros::Subscriber kinectSubscriber = n.subscribe("/camera/depth/image_raw", 1, &Main::depthCallback, &main);
+//   ros::Subscriber kinectSubscriber = n.subscribe("kinect_depth", 1, depthCallback);
+  ros::Subscriber kinectSubscriber = n.subscribe("/camera/depth/image_raw", 1, &Main::depthCallback, &main);
   ros::Subscriber initialPoseSubscriber = n.subscribe("initialpose", 1, initialPoseCallback);
+
 
   filteredPointCloudPublisher = n.advertise<sensor_msgs::PointCloud>("Cobot/Kinect/FilteredPointCloud", 1);
   completePointCloudPublisher = n.advertise<sensor_msgs::PointCloud>("Cobot/Kinect/CompletePointCloud", 1);

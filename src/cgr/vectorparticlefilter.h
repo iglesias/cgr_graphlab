@@ -175,6 +175,11 @@ public:
     MultinomialResampling,
   };
 
+  enum EGraphClass {
+    CompleteGraph,
+    SparseGraph
+  };
+
   struct ParticleInitializer {
     ParticleInitializer();
     ParticleInitializer(vector2f _loc, float _angle, float _locationUncertainty, float _angleUncertainty);
@@ -248,7 +253,7 @@ protected:
   EvalValues laserEval;
 
 public:
-  VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder);
+  VectorLocalization2D(int _numParticles, graph_type& _graph, EGraphClass _graph_class, const char* _mapsFolder);
   ~VectorLocalization2D();
 
   /// Sets Particle Filter LIDAR parameters

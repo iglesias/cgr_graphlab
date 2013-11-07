@@ -67,6 +67,7 @@ using namespace std;
 
 bool run = true;
 bool usePointCloud = false;
+bool useSparseGraph = false;
 bool noLidar = false;
 int numParticles = 20;
 int debugLevel = -1;
@@ -688,6 +689,7 @@ int main(int argc, char** argv)
     { "Alpha1-param",     'u', POPT_ARG_DOUBLE,  &motionParams.Alpha1,  0, "Alpha1 parameter",   "NUM"},
     { "Alpha2-param",     'v', POPT_ARG_DOUBLE,  &motionParams.Alpha2,  0, "Alpha2 parameter",   "NUM"},
     { "Alpha3-param",     'w', POPT_ARG_DOUBLE,  &motionParams.Alpha3,  0, "Alpha3 parameter",   "NUM"},
+    { "use-sparse-graph", 's', POPT_ARG_NONE,     &useSparseGraph,       0, "Use Sparse Graph",   "NONE"},
     POPT_AUTOHELP
     { NULL, 0, 0, NULL, 0, NULL, NULL }
   };
@@ -712,6 +714,7 @@ int main(int argc, char** argv)
     printf("Alpha2           : %f\n",motionParams.Alpha2);
     printf("Alpha3           : %f\n",motionParams.Alpha3);
     printf("UsePointCloud    : %d\n",usePointCloud?1:0);
+    printf("UseSparseGraph   : %d\n",useSparseGraph?1:0);
     printf("UseLIDAR         : %d\n",noLidar?0:1);
     printf("Visualizations   : %d\n",debugLevel>=0?1:0);
     printf("\n");
@@ -728,13 +731,17 @@ int main(int argc, char** argv)
 //   InitHandleStop(&run);
   ros::NodeHandle n;
 
-  global_logger().set_log_level(LOG_NONE);
+//   global_logger().set_log_level(LOG_NONE);
   graphlab::mpi_tools::init(argc, argv);
   graphlab::distributed_control dc;
   graph_type graph(dc);
 
   //Initialize particle filter, sensor model, motion model, refine model
-  localization = new VectorLocalization2D(numParticles, graph, mapsFolder.c_str());
+  if (useSparseGraph)
+    localization = new VectorLocalization2D(numParticles, graph, VectorLocalization2D::SparseGraph, mapsFolder.c_str());
+  else
+    localization = new VectorLocalization2D(numParticles, graph, VectorLocalization2D::CompleteGraph, mapsFolder.c_str());
+
   InitModels();
 
   //Initialize particle filter

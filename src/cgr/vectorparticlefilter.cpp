@@ -67,7 +67,7 @@ void VectorLocalization2D::LidarParams::initialize()
   }
 }
 
-VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph, const char* _mapsFolder) {
+VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph, EGraphClass _graph_class, const char* _mapsFolder) {
   assert(_numParticles > 0);
 
   mapsFolder = string(_mapsFolder);
@@ -76,9 +76,22 @@ VectorLocalization2D::VectorLocalization2D(int _numParticles, graph_type& _graph
   particles.resize(_numParticles);
 
   //create distributed graph
-  for (int id = 0; id < numParticles-1; ++id) {
-    _graph.add_edge(id, id+1);
-    _graph.add_edge(id+1, id);
+
+  switch(_graph_class) {
+    case CompleteGraph:
+      for (int id1 = 0; id1 < numParticles; ++id1) {
+        for (int id2 = id1+1; id2 < numParticles; ++id2) {
+          _graph.add_edge(id1, id2);
+          _graph.add_edge(id2, id1);
+        }
+      }
+      break;
+    case SparseGraph:
+      for (int id = 0; id < numParticles-1; ++id) {
+        _graph.add_edge(id, id+1);
+        _graph.add_edge(id+1, id);
+      }
+      break;
   }
 
   //commit the distributed graph, denoting that it is no longer to be modified

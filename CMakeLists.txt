@@ -115,7 +115,7 @@ add_dependencies(cgr_libraries shared_libraries map_libraries)
 target_link_libraries(cgr_libraries shared_libraries map_libraries ${libs})
 
 #executable target
-set(target cgr_localization)
+set(target cgr_graphlab)
 rosbuild_add_executable(${target} src/cgr/localization_main.cpp )
 add_dependencies(${target} cgr_libraries fspf_libraries shared_libraries map_libraries rosbuild_precompile)
 target_link_libraries(${target} shared_libraries map_libraries cgr_libraries fspf_libraries ${libs} roslib)

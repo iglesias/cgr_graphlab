@@ -61,7 +61,7 @@ class Main {
     tf::TransformListener transformListener;
 
     tf::TransformBroadcaster transformBroadcaster;
-}; // class Main
+};
 
 using namespace std;
 
@@ -474,9 +474,9 @@ void odometryCallback(const nav_msgs::OdometryConstPtr &msg)
 
   if(debugLevel>0) printf("Odometry t:%f x:%7.3f y:%7.3f a:%7.3f\u00b0\n",msg->header.stamp.toSec(), dx, dy, DEG(dtheta));
 
-  double start = GetTimeSec();
+//   double start = GetTimeSec();
   localization->predict(dx, dy, dtheta, motionParams);
-  std::cerr << "predict           : " << GetTimeSec()-start << std::endl;
+//   std::cerr << "predict           : " << GetTimeSec()-start << std::endl;
 
   angle = newAngle;
   loc = newLoc;
@@ -653,12 +653,12 @@ void Main::depthCallback(const sensor_msgs::Image &msg)
       pointCloud2D.push_back(curPoint);
     }
 
-    double start = GetTimeSec();
+//     double start = GetTimeSec();
     localization->refinePointCloud(pointCloud2D, pointCloudNormals2D, pointCloudParams);
     localization->updatePointCloud(pointCloud2D, pointCloudNormals2D, motionParams, pointCloudParams);
     localization->resample(VectorLocalization2D::MultinomialResampling);
     localization->computeLocation(curLoc,curAngle);
-    std::cerr << "point cloud update: " << GetTimeSec()-start << std::endl;
+//     std::cerr << "point cloud update: " << GetTimeSec()-start << std::endl;
   }
 }
 
@@ -721,7 +721,7 @@ int main(int argc, char** argv)
   srand(seed);
 
   //Load map
-  string mapsFolder(ros::package::getPath("cgr_localization").append("/maps/"));
+  string mapsFolder(ros::package::getPath("cgr_graphlab").append("/maps/"));
 
   //Initialize ros
   ros::init(argc, argv, "cgr_graphlab");
